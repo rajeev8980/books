@@ -25,7 +25,7 @@ fun String.asBuildConfigString(): String =
 
 android {
     namespace = "app.box.suggest"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "app.box.suggest"

@@ -287,6 +287,8 @@ async def upload_media(
     x_client_id: str | None = Header(default=None),
 ):
     deadline = time.monotonic() + VANISH_SECONDS
+    if not x_client_id:
+        raise HTTPException(status_code=403, detail="Only the two people in the box can drop something in.")
     sender = as_uuid(x_client_id)
     suggestion_id = as_uuid(id)
     if sender is None or suggestion_id is None:

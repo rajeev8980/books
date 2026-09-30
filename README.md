@@ -41,7 +41,7 @@ python -m pytest
 
 ## Build and install the app
 
-You need JDK 17 or newer and the Android SDK (compile SDK 36).
+You need JDK 17 or newer and the Android SDK (compile SDK 37).
 
 From `android/`, the server address is `server.url` in `local.properties`. Copy the example if you don't have that file yet:
 

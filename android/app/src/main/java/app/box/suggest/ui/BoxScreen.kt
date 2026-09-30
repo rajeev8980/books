@@ -59,7 +59,6 @@ import app.box.suggest.Suggestion
 import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import coil3.request.memoryCacheKey
 
 @Composable
 fun BoxScreen(
