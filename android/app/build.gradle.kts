@@ -17,7 +17,7 @@ val serverUrl: String = (
     (findProperty("server.url") as String?)
         ?: localProperties.getProperty("server.url")
         ?: System.getenv("SERVER_URL")
-        ?: "https://feature-beyond-cyber-seat.trycloudflare.com"
+        ?: "https://rajeev-suggestion-box.onrender.com"
     ).trim().trimEnd('/')
 
 fun String.asBuildConfigString(): String =

@@ -61,4 +61,4 @@ cd android
 
 Install it on two emulators or two phones. Both use the same server. The third one is turned away.
 
-The installed app uses `https://feature-beyond-cyber-seat.trycloudflare.com`, which reaches this server from any network. It speaks WebSocket at `/ws` and accepts photo and GIF uploads at `POST /media`. There is no account and no web app.
+The installed app uses `https://rajeev-suggestion-box.onrender.com`. That server stays up on its own, on any network. It speaks WebSocket at `/ws` and accepts photo and GIF uploads at `POST /media`. There is no account and no web app.

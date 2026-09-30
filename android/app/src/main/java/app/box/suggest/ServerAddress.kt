@@ -20,7 +20,8 @@ object ServerAddress {
             .substringBefore("/")
             .substringBefore(":")
             .lowercase()
-        return host == "10.0.2.2" || host == "127.0.0.1" || host == "localhost" || host == "0.0.0.0"
+        return host == "10.0.2.2" || host == "127.0.0.1" || host == "localhost" || host == "0.0.0.0" ||
+            host.endsWith(".trycloudflare.com")
     }
 
     fun save(context: Context, url: String) {
