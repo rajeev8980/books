@@ -35,7 +35,7 @@ sealed class SessionEvent {
 }
 
 class BoxSession(
-    private val httpBase: String,
+    var httpBase: String,
     private val scope: CoroutineScope,
     private val onEvent: (SessionEvent) -> Unit,
 ) {

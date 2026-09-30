@@ -7,6 +7,7 @@ object Limits {
 }
 
 enum class Phase {
+    Setup,
     Connecting,
     InRoom,
     Rejected,
@@ -29,13 +30,14 @@ class Suggestion(
 )
 
 data class BoxUiState(
-    val phase: Phase = Phase.Connecting,
+    val phase: Phase = Phase.Setup,
     val occupancy: Int = 0,
     val notice: String? = null,
     val banner: String? = null,
     val yours: Suggestion? = null,
     val theirs: Suggestion? = null,
     val busy: Boolean = false,
+    val serverUrl: String = "",
     val serverLabel: String = "",
 ) {
     val canDrop: Boolean

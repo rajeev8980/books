@@ -43,24 +43,13 @@ python -m pytest
 
 You need JDK 17 or newer and the Android SDK (compile SDK 37).
 
-From `android/`, the server address is `server.url` in `local.properties`. Copy the example if you don't have that file yet:
+The first screen asks for the server address and saves it on the phone. A physical phone should use the computer's LAN address, for example `http://192.168.1.20:43123`. An emulator can keep `http://10.0.2.2:43123`, which is the emulator's name for your computer. That value is only the field's starting text. Change it in the app; you do not need to rebuild.
+
+`server.url` in `android/local.properties` sets that starting text. Copy the example if you don't have the file yet:
 
 ```bash
 cd android
 cp local.properties.example local.properties
-```
-
-| Where the app runs | `server.url` |
-| --- | --- |
-| Emulator | `http://10.0.2.2:43123` |
-| Phone on the same Wi-Fi | `http://<your computer's LAN address>:43123` |
-
-`10.0.2.2` is the emulator's name for your computer. A physical phone cannot use it. The app shows the host it is using under the title.
-
-You can also pass the URL without editing the file:
-
-```bash
-./gradlew -Pserver.url=http://192.168.1.20:43123 installDebug
 ```
 
 Point `sdk.dir` in `local.properties` at your Android SDK, or set `ANDROID_HOME`. Then:

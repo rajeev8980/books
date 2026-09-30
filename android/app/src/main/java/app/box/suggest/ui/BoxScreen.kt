@@ -167,6 +167,7 @@ fun BoxScreen(
 @Composable
 private fun statusLine(state: BoxUiState): String {
     return when (state.phase) {
+        Phase.Setup -> stringResource(R.string.server_label)
         Phase.Connecting -> stringResource(R.string.connecting)
         Phase.Offline -> stringResource(R.string.offline)
         Phase.Rejected -> stringResource(R.string.room_full)

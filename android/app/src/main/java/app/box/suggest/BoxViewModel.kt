@@ -19,20 +19,46 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 class BoxViewModel(application: Application) : AndroidViewModel(application) {
-    private val serverUrl = BuildConfig.SERVER_URL
-    private val _state = MutableStateFlow(BoxUiState(serverLabel = Urls.label(serverUrl)))
+    private val savedUrl = ServerAddress.load(application)
+    private val _state = MutableStateFlow(
+        BoxUiState(
+            phase = Phase.Setup,
+            serverUrl = savedUrl,
+            serverLabel = Urls.label(savedUrl),
+        ),
+    )
     val state: StateFlow<BoxUiState> = _state.asStateFlow()
 
     private var selfId: String? = null
     private val purgeLock = Mutex()
 
     private val session = BoxSession(
-        httpBase = serverUrl,
+        httpBase = savedUrl,
         scope = viewModelScope,
         onEvent = ::onEvent,
     )
 
-    init {
+    fun openBox(raw: String) {
+        val url = ServerAddress.normalize(raw)
+        if (url == null) {
+            _state.update { it.copy(banner = "Use an address like http://192.168.1.20:43123") }
+            return
+        }
+        ServerAddress.save(getApplication(), url)
+        session.httpBase = url
+        selfId = null
+        _state.update {
+            it.copy(
+                phase = Phase.Connecting,
+                serverUrl = url,
+                serverLabel = Urls.label(url),
+                banner = null,
+                notice = null,
+                yours = null,
+                theirs = null,
+                busy = false,
+            )
+        }
         session.connect()
     }
 
@@ -90,12 +116,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun retry() {
-        _state.value = BoxUiState(
-            phase = Phase.Connecting,
-            serverLabel = Urls.label(serverUrl),
-        )
-        selfId = null
-        session.connect()
+        openBox(_state.value.serverUrl)
         viewModelScope.launch { purgeEverything() }
     }
 
