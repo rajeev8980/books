@@ -87,8 +87,7 @@ fun BoxScreen(
                 state.phase == Phase.Connecting -> BubbleText(stringResource(R.string.connecting))
                 state.busy && state.yours == null && state.theirs == null ->
                     BubbleText(stringResource(R.string.dropping))
-                state.yours == null && state.theirs == null ->
-                    BubbleText(stringResource(R.string.greeting))
+                state.yours == null && state.theirs == null -> Unit
                 else -> {
                     state.yours?.let { NoteBubble(it, imageLoader) }
                     if (state.yours != null && state.theirs != null) Spacer(Modifier.height(10.dp))
@@ -160,19 +159,7 @@ private fun Header(onLeave: () -> Unit) {
                 modifier = Modifier.size(22.dp),
             )
         }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.title),
-                style = MaterialTheme.typography.headlineLarge,
-                fontSize = 22.sp,
-            )
-            Text(
-                text = stringResource(R.string.subtitle),
-                color = Muted,
-                style = MaterialTheme.typography.labelMedium,
-            )
-        }
+        Spacer(Modifier.weight(1f))
         IconButton(onClick = onLeave) {
             Icon(
                 painter = painterResource(R.drawable.ic_close),
