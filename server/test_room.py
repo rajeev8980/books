@@ -20,7 +20,6 @@ import uvicorn
 import websockets
 
 from app import (
-    ALREADY_IN_BOX,
     ROOM_FULL,
     Suggestion,
     app,
@@ -128,7 +127,7 @@ def test_health(service: Service) -> None:
     assert response.json()["ok"] is True
 
 
-def test_four_people_and_one_suggestion_each(service: Service) -> None:
+def test_four_people_and_many_suggestions(service: Service) -> None:
     asyncio.run(_limits(service))
 
 
@@ -156,13 +155,13 @@ async def _limits(service: Service) -> None:
         assert delivered["text"] == "Add a window seat"
         assert suggestion_id in room.suggestions
 
-        await people[0].send(json.dumps({"type": "text", "id": str(uuid.uuid4()), "text": "And a lamp"}))
-        error = json.loads(await asyncio.wait_for(people[0].recv(), 2))
-        assert error["type"] == "error"
-        assert error["message"] == ALREADY_IN_BOX
-        with pytest.raises(asyncio.TimeoutError):
-            await _next_suggestion(people[1], timeout=0.3)
-        assert [item.id for item in room.suggestions.values() if item.sender_id == welcomes[0]["you"]] == [suggestion_id]
+        second_id = str(uuid.uuid4())
+        await people[0].send(json.dumps({"type": "text", "id": second_id, "text": "And a lamp"}))
+        again = await _next_suggestion(people[1])
+        assert again["id"] == second_id
+        assert again["text"] == "And a lamp"
+        held = [item.id for item in room.suggestions.values() if item.sender_id == welcomes[0]["you"]]
+        assert held == [suggestion_id, second_id]
     finally:
         await _close(*people, fifth)
 
@@ -244,16 +243,20 @@ async def _deleted(service: Service) -> None:
             files={"file": ("seat.png", png, "image/png")},
             timeout=2,
         )
-        # The sender already has a live text suggestion, so the photo is refused and not stored.
-        assert png_response.status_code == 409
-        assert list(service.upload_dir.glob(f"{png_id}.*")) == []
+        assert png_response.status_code == 201
+        png_path = next(service.upload_dir.glob(f"{png_id}.*"))
+        assert png_path.read_bytes() == png
 
         text_message = await _next_suggestion(receiver)
         assert text_message["text"] == "Softer light"
+        png_message = await _next_suggestion(receiver)
+        assert png_message["id"] == png_id
+        assert png_message["kind"] == "image"
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(sender.recv(), 0.2)
 
         await _wait_until_gone(text_id, None, text_started)
+        await _wait_until_gone(png_id, png_path, png_started)
         assert not any(service.upload_dir.iterdir())
 
         gif_id = str(uuid.uuid4())

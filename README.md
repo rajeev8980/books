@@ -1,6 +1,6 @@
 # Suggestion box
 
-A box for up to four people. Each person drops one suggestion — text, a photo, or an animated GIF — into the same box. It shows up, then it is gone. There is no thread and no history.
+A box for up to four people. Anyone can drop as many suggestions as they want — text, a photo, or an animated GIF. Each one shows up, then it is gone. Nothing is saved.
 
 ## What happens to a suggestion
 
@@ -8,7 +8,7 @@ A box for up to four people. Each person drops one suggestion — text, a photo,
 - Once it has been delivered and shown, it leaves each other person's screen 3 seconds after it appears.
 - The server deletes the suggestion, and any image or GIF file, 3 seconds after it is received. The file is removed from disk. The record is removed from memory. Nothing is kept with a hidden "deleted" flag.
 - Each phone drops the bytes it was showing and wipes its cache when the suggestion leaves the screen. The app has no database.
-- A person can drop another suggestion only after their current one has vanished.
+- There is no limit on how many suggestions a person can drop. They do not have to wait for the last one to vanish.
 - A fifth connection is refused with: "This room already has four people."
 
 The picture you pick stays in your gallery. The app only reads it. It does not write a second copy, and it does not delete the original.

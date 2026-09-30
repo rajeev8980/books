@@ -32,6 +32,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
     private var selfId: String? = null
     private var userLeft = false
     private var reconnects = 0
+    private var reads = 0
     private val purgeLock = Mutex()
 
     private val session = BoxSession(
@@ -54,6 +55,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
         }
         ServerAddress.save(getApplication(), url)
         session.httpBase = url
+        reads = 0
         selfId = null
         _state.update {
             it.copy(
@@ -62,8 +64,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
                 serverLabel = Urls.label(url),
                 banner = null,
                 notice = null,
-                yours = null,
-                theirs = null,
+                notes = emptyList(),
                 busy = false,
             )
         }
@@ -82,42 +83,48 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
         val id = UUID.randomUUID().toString()
         _state.update {
             it.copy(
-                yours = Suggestion(id, true, Kind.Text, text, null, null),
+                notes = it.notes + Suggestion(id, true, Kind.Text, text, null, null),
                 banner = null,
             )
         }
         session.sendText(id, text)
         viewModelScope.launch {
             delay(Limits.VANISH_MS)
-            clearYours(id)
+            clearNote(id)
         }
     }
 
     fun dropMedia(uri: Uri) {
         if (!_state.value.canDrop) return
         val started = SystemClock.elapsedRealtime()
+        reads += 1
         _state.update { it.copy(busy = true, banner = null) }
         viewModelScope.launch {
-            when (val read = withContext(Dispatchers.IO) { MediaReader.read(getApplication(), uri) }) {
+            val read = withContext(Dispatchers.IO) { MediaReader.read(getApplication(), uri) }
+            reads = (reads - 1).coerceAtLeast(0)
+            if (_state.value.phase == Phase.InRoom) {
+                _state.update { it.copy(busy = reads > 0) }
+            }
+            if (_state.value.phase != Phase.InRoom) return@launch
+            when (read) {
                 ReadResult.Unreadable ->
-                    _state.update { it.copy(busy = false, banner = "Couldn't read that image.") }
+                    _state.update { it.copy(banner = "Couldn't read that image.") }
                 ReadResult.TooBig ->
-                    _state.update { it.copy(busy = false, banner = "Images and GIFs need to be under 8 MB.") }
+                    _state.update { it.copy(banner = "Images and GIFs need to be under 8 MB.") }
                 ReadResult.Unsupported ->
-                    _state.update { it.copy(busy = false, banner = "Use a JPEG, PNG, WEBP, or GIF.") }
+                    _state.update { it.copy(banner = "Use a JPEG, PNG, WEBP, or GIF.") }
                 is ReadResult.Ok -> {
                     val id = UUID.randomUUID().toString()
                     _state.update {
                         it.copy(
-                            busy = false,
                             banner = null,
-                            yours = Suggestion(id, true, read.kind, null, read.bytes, read.mime),
+                            notes = it.notes + Suggestion(id, true, read.kind, null, read.bytes, read.mime),
                         )
                     }
                     session.upload(id, read.bytes, "suggestion.${read.ext}", read.mime)
                     val remain = Limits.VANISH_MS - (SystemClock.elapsedRealtime() - started)
                     if (remain > 0) delay(remain)
-                    clearYours(id)
+                    clearNote(id)
                 }
             }
         }
@@ -130,14 +137,14 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
 
     fun leave() {
         userLeft = true
+        reads = 0
         session.disconnect()
         selfId = null
         _state.update {
             it.copy(
                 phase = Phase.Setup,
                 occupancy = 0,
-                yours = null,
-                theirs = null,
+                notes = emptyList(),
                 busy = false,
                 banner = null,
                 notice = null,
@@ -163,8 +170,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         phase = Phase.Rejected,
                         notice = event.message,
-                        yours = null,
-                        theirs = null,
+                        notes = emptyList(),
                         busy = false,
                     )
                 }
@@ -192,7 +198,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun showTheirs(event: SessionEvent.Incoming) {
         if (event.sender == selfId) return
-        if (_state.value.theirs != null) return
+        if (_state.value.notes.any { it.id == event.id }) return
         val suggestion = Suggestion(
             id = event.id,
             mine = false,
@@ -201,22 +207,16 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
             bytes = event.bytes,
             mime = event.mime,
         )
-        _state.update { it.copy(theirs = suggestion) }
+        _state.update { it.copy(notes = it.notes + suggestion) }
         viewModelScope.launch {
             delay(Limits.VANISH_MS)
-            clearTheirs(event.id)
+            clearNote(event.id)
         }
     }
 
-    private suspend fun clearYours(id: String) {
-        if (_state.value.yours?.id != id) return
-        _state.update { it.copy(yours = null) }
-        forget(id)
-    }
-
-    private suspend fun clearTheirs(id: String) {
-        if (_state.value.theirs?.id != id) return
-        _state.update { it.copy(theirs = null) }
+    private suspend fun clearNote(id: String) {
+        if (_state.value.notes.none { it.id == id }) return
+        _state.update { it.copy(notes = it.notes.filter { note -> note.id != id }) }
         forget(id)
     }
 
@@ -224,7 +224,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
         purgeLock.withLock {
             val loader = getApplication<BoxApplication>().imageLoader
             loader.memoryCache?.remove(MemoryCache.Key(id))
-            if (_state.value.yours == null && _state.value.theirs == null) {
+            if (_state.value.notes.isEmpty()) {
                 loader.memoryCache?.clear()
             }
             withContext(Dispatchers.IO) { CacheWiper.wipe(getApplication()) }

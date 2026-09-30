@@ -34,14 +34,13 @@ data class BoxUiState(
     val occupancy: Int = 0,
     val notice: String? = null,
     val banner: String? = null,
-    val yours: Suggestion? = null,
-    val theirs: Suggestion? = null,
+    val notes: List<Suggestion> = emptyList(),
     val busy: Boolean = false,
     val serverUrl: String = "",
     val serverLabel: String = "",
 ) {
     val canDrop: Boolean
-        get() = phase == Phase.InRoom && yours == null && !busy
+        get() = phase == Phase.InRoom
 }
 
 object Urls {

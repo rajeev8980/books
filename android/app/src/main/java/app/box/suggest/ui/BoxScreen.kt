@@ -3,6 +3,8 @@ package app.box.suggest.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +30,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,6 +54,7 @@ import app.box.suggest.Phase
 import app.box.suggest.R
 import app.box.suggest.Suggestion
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.delay
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 
@@ -64,6 +69,11 @@ fun BoxScreen(
     val imageLoader = (context.applicationContext as BoxApplication).imageLoader
     var draft by remember { mutableStateOf("") }
     val canSend = state.canDrop && draft.isNotBlank()
+    val scroll = rememberScrollState()
+    LaunchedEffect(state.notes.size, state.busy) {
+        delay(32)
+        scroll.scrollTo(scroll.maxValue)
+    }
 
     Column(
         modifier = Modifier
@@ -76,19 +86,25 @@ fun BoxScreen(
         Column(
             modifier = Modifier
                 .weight(1f)
-                .fillMaxWidth(),
-            verticalArrangement = Arrangement.Top,
+                .fillMaxWidth()
+                .verticalScroll(scroll),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            when {
-                state.phase == Phase.Rejected -> BubbleText(state.notice ?: stringResource(R.string.room_full))
-                state.phase == Phase.Connecting -> BubbleText(stringResource(R.string.connecting))
-                state.busy && state.yours == null && state.theirs == null ->
-                    BubbleText(stringResource(R.string.dropping))
-                state.yours == null && state.theirs == null -> Unit
+            when (state.phase) {
+                Phase.Rejected -> BubbleText(state.notice ?: stringResource(R.string.room_full))
+                Phase.Connecting -> BubbleText(stringResource(R.string.connecting))
                 else -> {
-                    state.yours?.let { NoteBubble(it, imageLoader) }
-                    if (state.yours != null && state.theirs != null) Spacer(Modifier.height(10.dp))
-                    state.theirs?.let { NoteBubble(it, imageLoader) }
+                    state.notes.forEach { note ->
+                        key(note.id) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = if (note.mine) Alignment.CenterEnd else Alignment.CenterStart,
+                            ) {
+                                NoteBubble(note, imageLoader)
+                            }
+                        }
+                    }
+                    if (state.busy) BubbleText(stringResource(R.string.dropping))
                 }
             }
             state.banner?.let { banner ->

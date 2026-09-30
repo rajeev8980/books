@@ -27,17 +27,12 @@ MAX_TEXT = 2000
 ROOM_CAPACITY = 4
 ROOM_FULL = "This room already has four people."
 NOT_IN_BOX = "Only someone in the box can drop something in."
-ALREADY_IN_BOX = "You already have a suggestion in the box."
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "43123"))
 
 log = logging.getLogger("box")
 ROOT = Path(__file__).resolve().parent
 DEFAULT_UPLOAD_DIR = ROOT / "data" / "uploads"
-
-
-class AlreadyInBox(Exception):
-    pass
 
 
 def prepare_upload_dir(path: Path) -> None:
@@ -122,15 +117,10 @@ class Room:
         log.info("left occupancy %s", occupancy)
         await self.broadcast({"type": "presence", "event": "left", "occupancy": occupancy})
 
-    def _sender_is_holding(self, sender_id: str) -> bool:
-        return any(item.sender_id == sender_id for item in self.suggestions.values())
-
     async def accept_text(self, sender_id: str, suggestion_id: str, text: str, deadline: float) -> None:
         async with self.lock:
             if sender_id not in self.clients:
                 return
-            if self._sender_is_holding(sender_id):
-                raise AlreadyInBox()
             if suggestion_id in self.suggestions:
                 return
             self.suggestions[suggestion_id] = Suggestion(
@@ -168,8 +158,8 @@ class Room:
         async with self.lock:
             if sender_id not in self.clients:
                 raise HTTPException(status_code=403, detail=NOT_IN_BOX)
-            if self._sender_is_holding(sender_id) or suggestion_id in self.suggestions:
-                raise AlreadyInBox()
+            if suggestion_id in self.suggestions:
+                return self.suggestions[suggestion_id]
         path = self.path_for(suggestion_id, ext)
         path.write_bytes(data)
         suggestion = Suggestion(
@@ -181,11 +171,11 @@ class Room:
             mime=mime,
         )
         async with self.lock:
-            if sender_id not in self.clients or self._sender_is_holding(sender_id) or suggestion_id in self.suggestions:
+            if sender_id not in self.clients or suggestion_id in self.suggestions:
                 path.unlink(missing_ok=True)
                 if sender_id not in self.clients:
                     raise HTTPException(status_code=403, detail=NOT_IN_BOX)
-                raise AlreadyInBox()
+                return self.suggestions[suggestion_id]
             self.suggestions[suggestion_id] = suggestion
         encoded = base64.b64encode(data).decode("ascii")
         await self.broadcast(
@@ -301,10 +291,7 @@ async def upload_media(
         raise HTTPException(status_code=413, detail="Images and GIFs need to be under 8 MB.")
     if not raw:
         raise HTTPException(status_code=400, detail="That file is empty.")
-    try:
-        suggestion = await room.accept_media(sender, suggestion_id, raw, deadline)
-    except AlreadyInBox:
-        raise HTTPException(status_code=409, detail=ALREADY_IN_BOX) from None
+    suggestion = await room.accept_media(sender, suggestion_id, raw, deadline)
     return {"id": suggestion.id, "kind": suggestion.kind, "mime": suggestion.mime}
 
 
@@ -365,10 +352,7 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     if suggestion_id is None:
         await websocket.send_json({"type": "error", "message": "Suggestion id must be a UUID."})
         return
-    try:
-        await room.accept_text(client_id, suggestion_id, text, deadline)
-    except AlreadyInBox:
-        await websocket.send_json({"type": "error", "message": ALREADY_IN_BOX})
+    await room.accept_text(client_id, suggestion_id, text, deadline)
 
 
 def main() -> None:
