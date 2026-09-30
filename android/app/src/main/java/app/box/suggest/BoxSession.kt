@@ -158,7 +158,7 @@ class BoxSession(
             }
             "presence" -> SessionEvent.Presence(json.optInt("occupancy", 1))
             "rejected" -> SessionEvent.Rejected(
-                json.optString("message").ifBlank { "This room already has two people." },
+                json.optString("message").ifBlank { "This room already has four people." },
             )
             "error" -> SessionEvent.Failed(json.optString("message").ifBlank { "Couldn't share that one." })
             "suggestion" -> parseSuggestion(json)

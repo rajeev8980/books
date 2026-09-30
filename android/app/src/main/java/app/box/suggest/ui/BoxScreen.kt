@@ -136,12 +136,8 @@ private fun statusLine(state: BoxUiState): String {
     return when (state.phase) {
         Phase.Connecting -> stringResource(R.string.connecting)
         Phase.Rejected -> stringResource(R.string.room_full)
-        Phase.InRoom -> if (state.occupancy >= 2) {
-            stringResource(R.string.paired)
-        } else {
-            stringResource(R.string.waiting)
-        }
-        else -> stringResource(R.string.waiting)
+        Phase.InRoom -> stringResource(R.string.members, state.occupancy)
+        else -> stringResource(R.string.members, state.occupancy.coerceAtLeast(1))
     }
 }
 

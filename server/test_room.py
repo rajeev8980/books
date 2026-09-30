@@ -1,4 +1,4 @@
-"""The box keeps two people, and it really deletes what they drop."""
+"""The box keeps four people, and it really deletes what they drop."""
 
 from __future__ import annotations
 
@@ -128,46 +128,43 @@ def test_health(service: Service) -> None:
     assert response.json()["ok"] is True
 
 
-def test_only_two_people_and_one_suggestion_each(service: Service) -> None:
+def test_four_people_and_one_suggestion_each(service: Service) -> None:
     asyncio.run(_limits(service))
 
 
 async def _limits(service: Service) -> None:
-    first = await websockets.connect(service.ws)
-    second = await websockets.connect(service.ws)
-    third = await websockets.connect(service.ws)
+    people = [await websockets.connect(service.ws) for _ in range(4)]
+    fifth = await websockets.connect(service.ws)
     try:
-        welcome_a = json.loads(await asyncio.wait_for(first.recv(), 2))
-        welcome_b = json.loads(await asyncio.wait_for(second.recv(), 2))
-        rejected = json.loads(await asyncio.wait_for(third.recv(), 2))
-        assert welcome_a["type"] == "welcome"
-        assert welcome_b["type"] == "welcome"
-        assert welcome_b["occupancy"] == 2
+        welcomes = [json.loads(await asyncio.wait_for(sock.recv(), 2)) for sock in people]
+        rejected = json.loads(await asyncio.wait_for(fifth.recv(), 2))
+        assert all(item["type"] == "welcome" for item in welcomes)
+        assert welcomes[-1]["occupancy"] == 4
         assert rejected == {"type": "rejected", "message": ROOM_FULL}
         await asyncio.sleep(0.05)
-        assert third.close_code == 1008
+        assert fifth.close_code == 1008
 
-        # The presence notice for the second arrival is not a suggestion.
-        await _drain(first)
+        # Presence notices for the later arrivals are not suggestions.
+        await _drain(people[0])
 
         suggestion_id = str(uuid.uuid4())
-        await first.send(json.dumps({"type": "text", "id": suggestion_id, "text": "Add a window seat"}))
-        delivered = await _next_suggestion(second)
+        await people[0].send(json.dumps({"type": "text", "id": suggestion_id, "text": "Add a window seat"}))
+        delivered = await _next_suggestion(people[1])
         assert delivered["id"] == suggestion_id
-        assert delivered["sender"] == welcome_a["you"]
+        assert delivered["sender"] == welcomes[0]["you"]
         assert delivered["kind"] == "text"
         assert delivered["text"] == "Add a window seat"
         assert suggestion_id in room.suggestions
 
-        await first.send(json.dumps({"type": "text", "id": str(uuid.uuid4()), "text": "And a lamp"}))
-        error = json.loads(await asyncio.wait_for(first.recv(), 2))
+        await people[0].send(json.dumps({"type": "text", "id": str(uuid.uuid4()), "text": "And a lamp"}))
+        error = json.loads(await asyncio.wait_for(people[0].recv(), 2))
         assert error["type"] == "error"
         assert error["message"] == ALREADY_IN_BOX
         with pytest.raises(asyncio.TimeoutError):
-            await _next_suggestion(second, timeout=0.3)
-        assert [item.id for item in room.suggestions.values() if item.sender_id == welcome_a["you"]] == [suggestion_id]
+            await _next_suggestion(people[1], timeout=0.3)
+        assert [item.id for item in room.suggestions.values() if item.sender_id == welcomes[0]["you"]] == [suggestion_id]
     finally:
-        await _close(first, second, third)
+        await _close(*people, fifth)
 
     # A free slot can be taken after someone leaves.
     again = await websockets.connect(service.ws)

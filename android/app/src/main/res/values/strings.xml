@@ -9,13 +9,12 @@
     <string name="drop">Send</string>
     <string name="hint">Type your suggestion...</string>
     <string name="pick">Drop a photo or GIF</string>
-    <string name="waiting">You are here · 1 of 2</string>
-    <string name="paired">You are here · 2 of 2</string>
+    <string name="members">You are here · %1$d of 4</string>
     <string name="connecting">Opening the box…</string>
     <string name="offline">Can\'t reach the server</string>
     <string name="dropping">Sending…</string>
     <string name="retry">Try again</string>
-    <string name="room_full">This room already has two people.</string>
+    <string name="room_full">This room already has four people.</string>
     <string name="yours">Yours</string>
     <string name="theirs">Theirs</string>
     <string name="gif">GIF</string>

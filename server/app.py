@@ -1,4 +1,4 @@
-"""A suggestion box for exactly two people.
+"""A suggestion box for up to four people.
 
 Text, images, and GIFs live in memory and on disk only until they are deleted.
 Nothing is kept behind a hidden flag.
@@ -24,7 +24,9 @@ from fastapi.responses import FileResponse
 VANISH_SECONDS = 3.0
 MAX_MEDIA_BYTES = 8 * 1024 * 1024
 MAX_TEXT = 2000
-ROOM_FULL = "This room already has two people."
+ROOM_CAPACITY = 4
+ROOM_FULL = "This room already has four people."
+NOT_IN_BOX = "Only someone in the box can drop something in."
 ALREADY_IN_BOX = "You already have a suggestion in the box."
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("PORT", "43123"))
@@ -165,7 +167,7 @@ class Room:
         kind, mime, ext = sniffed
         async with self.lock:
             if sender_id not in self.clients:
-                raise HTTPException(status_code=403, detail="Only the two people in the box can drop something in.")
+                raise HTTPException(status_code=403, detail=NOT_IN_BOX)
             if self._sender_is_holding(sender_id) or suggestion_id in self.suggestions:
                 raise AlreadyInBox()
         path = self.path_for(suggestion_id, ext)
@@ -182,10 +184,7 @@ class Room:
             if sender_id not in self.clients or self._sender_is_holding(sender_id) or suggestion_id in self.suggestions:
                 path.unlink(missing_ok=True)
                 if sender_id not in self.clients:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="Only the two people in the box can drop something in.",
-                    )
+                    raise HTTPException(status_code=403, detail=NOT_IN_BOX)
                 raise AlreadyInBox()
             self.suggestions[suggestion_id] = suggestion
         encoded = base64.b64encode(data).decode("ascii")
@@ -289,14 +288,14 @@ async def upload_media(
 ):
     deadline = time.monotonic() + VANISH_SECONDS
     if not x_client_id:
-        raise HTTPException(status_code=403, detail="Only the two people in the box can drop something in.")
+        raise HTTPException(status_code=403, detail=NOT_IN_BOX)
     sender = as_uuid(x_client_id)
     suggestion_id = as_uuid(id)
     if sender is None or suggestion_id is None:
         raise HTTPException(status_code=400, detail="Suggestion id must be a UUID.")
     async with room.lock:
         if sender not in room.clients:
-            raise HTTPException(status_code=403, detail="Only the two people in the box can drop something in.")
+            raise HTTPException(status_code=403, detail=NOT_IN_BOX)
     raw = await file.read(MAX_MEDIA_BYTES + 1)
     if len(raw) > MAX_MEDIA_BYTES:
         raise HTTPException(status_code=413, detail="Images and GIFs need to be under 8 MB.")
@@ -315,7 +314,7 @@ async def socket_endpoint(websocket: WebSocket) -> None:
     client_id: str | None = None
     try:
         async with room.lock:
-            if len(room.clients) >= 2:
+            if len(room.clients) >= ROOM_CAPACITY:
                 full = True
                 occupancy = len(room.clients)
             else:

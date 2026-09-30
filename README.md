@@ -1,15 +1,15 @@
 # Suggestion box
 
-A box for two people. Each person drops one suggestion — text, a photo, or an animated GIF — into the same box. It shows up, then it is gone. There is no thread and no history.
+A box for up to four people. Each person drops one suggestion — text, a photo, or an animated GIF — into the same box. It shows up, then it is gone. There is no thread and no history.
 
 ## What happens to a suggestion
 
-- The sender's copy leaves their screen 3 seconds after they drop it, even if the other person never sees it.
-- Once it has been delivered and shown, it leaves the other person's screen 3 seconds after it appears.
+- The sender's copy leaves their screen 3 seconds after they drop it, even if nobody else sees it.
+- Once it has been delivered and shown, it leaves each other person's screen 3 seconds after it appears.
 - The server deletes the suggestion, and any image or GIF file, 3 seconds after it is received. The file is removed from disk. The record is removed from memory. Nothing is kept with a hidden "deleted" flag.
 - Each phone drops the bytes it was showing and wipes its cache when the suggestion leaves the screen. The app has no database.
 - A person can drop another suggestion only after their current one has vanished.
-- A third connection is refused with: "This room already has two people."
+- A fifth connection is refused with: "This room already has four people."
 
 The picture you pick stays in your gallery. The app only reads it. It does not write a second copy, and it does not delete the original.
 
@@ -59,6 +59,6 @@ cd android
 ./gradlew installDebug
 ```
 
-Install it on two emulators or two phones. Both use the same server. The third one is turned away.
+Install it on up to four phones. They all use the same server. A fifth phone is turned away.
 
 The installed app uses `https://rajeev-suggestion-box.onrender.com`. That server stays up on its own, on any network. It speaks WebSocket at `/ws` and accepts photo and GIF uploads at `POST /media`. There is no account and no web app.
