@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: rajeev-suggestion-box
+    runtime: python
+    plan: free
+    buildCommand: pip install -r server/requirements.txt
+    startCommand: python server/app.py
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"

@@ -30,6 +30,8 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<BoxUiState> = _state.asStateFlow()
 
     private var selfId: String? = null
+    private var userLeft = false
+    private var reconnects = 0
     private val purgeLock = Mutex()
 
     private val session = BoxSession(
@@ -43,6 +45,8 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun openBox(raw: String) {
+        userLeft = false
+        reconnects = 0
         val url = ServerAddress.normalize(raw)
         if (url == null) {
             _state.update { it.copy(banner = "Use an address like http://192.168.1.20:43123") }
@@ -125,6 +129,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun leave() {
+        userLeft = true
         session.disconnect()
         selfId = null
         _state.update {
@@ -145,6 +150,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
         when (event) {
             is SessionEvent.Welcome -> {
                 selfId = event.you
+                reconnects = 0
                 _state.update {
                     it.copy(phase = Phase.InRoom, occupancy = event.occupancy, notice = null)
                 }
@@ -165,8 +171,18 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch { purgeEverything() }
             }
             SessionEvent.Offline -> {
-                _state.update { current ->
-                    if (current.phase == Phase.Rejected) current else current.copy(phase = Phase.Offline)
+                if (userLeft || _state.value.phase == Phase.Rejected) return
+                if (reconnects < 5) {
+                    reconnects += 1
+                    val wait = 2000L * reconnects
+                    viewModelScope.launch {
+                        delay(wait)
+                        if (!userLeft) session.connect()
+                    }
+                } else {
+                    _state.update { current ->
+                        if (current.phase == Phase.Rejected) current else current.copy(phase = Phase.Offline)
+                    }
                 }
             }
             is SessionEvent.Failed -> _state.update { it.copy(banner = event.message) }

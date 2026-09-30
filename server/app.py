@@ -10,6 +10,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -26,7 +27,7 @@ MAX_TEXT = 2000
 ROOM_FULL = "This room already has two people."
 ALREADY_IN_BOX = "You already have a suggestion in the box."
 HOST = "0.0.0.0"
-PORT = 43123
+PORT = int(os.environ.get("PORT", "43123"))
 
 log = logging.getLogger("box")
 ROOT = Path(__file__).resolve().parent
