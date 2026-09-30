@@ -43,7 +43,7 @@ python -m pytest
 
 You need JDK 17 or newer and the Android SDK (compile SDK 37).
 
-The first screen asks for the server address and saves it on the phone. A physical phone should use the computer's LAN address, for example `http://192.168.1.20:43123`. An emulator can keep `http://10.0.2.2:43123`, which is the emulator's name for your computer. That value is only the field's starting text. Change it in the app; you do not need to rebuild.
+The app opens the box by itself. The address is already set to a public server, so a phone on any network can use it. The phone remembers whatever address you save. If you run the server yourself, change the address on the first screen (tap the X in the box to get there). An emulator on the same computer can use `http://10.0.2.2:43123`.
 
 `server.url` in `android/local.properties` sets that starting text. Copy the example if you don't have the file yet:
 
@@ -61,4 +61,4 @@ cd android
 
 Install it on two emulators or two phones. Both use the same server. The third one is turned away.
 
-The server has to be reachable at `http://<host>:43123`. It speaks WebSocket at `/ws` and accepts photo and GIF uploads at `POST /media`. There is no account and no web app.
+The installed app uses `https://feature-beyond-cyber-seat.trycloudflare.com`, which reaches this server from any network. It speaks WebSocket at `/ws` and accepts photo and GIF uploads at `POST /media`. There is no account and no web app.

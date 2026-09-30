@@ -2,6 +2,6 @@
 # sdk.dir=/path/to/Android/Sdk
 
 # URL of the suggestion box server, as the phone should reach it.
-# Emulator:  http://10.0.2.2:43123
-# A phone on the same Wi-Fi:  http://<your computer's LAN address>:43123
-server.url=http://10.0.2.2:43123
+# A public https address works from any network.
+# Emulator on the same machine: http://10.0.2.2:43123
+server.url=https://feature-beyond-cyber-seat.trycloudflare.com

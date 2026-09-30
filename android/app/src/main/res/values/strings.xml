@@ -1,17 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Suggestion box</string>
-    <string name="title">Suggestion box</string>
+    <string name="title">Need something?</string>
+    <string name="subtitle">Suggestions vanish in 3 seconds.</string>
+    <string name="greeting">Hi! Tell us what you need.</string>
     <string name="empty">The box is clear.</string>
     <string name="vanish">Suggestions vanish in 3 seconds.</string>
-    <string name="drop">Drop in</string>
-    <string name="hint">A suggestion</string>
+    <string name="drop">Send</string>
+    <string name="hint">Type your suggestion...</string>
     <string name="pick">Drop a photo or GIF</string>
-    <string name="waiting">Waiting for the other person</string>
-    <string name="paired">Both of you are here</string>
+    <string name="waiting">You are here · 1 of 2</string>
+    <string name="paired">You are here · 2 of 2</string>
     <string name="connecting">Opening the box…</string>
     <string name="offline">Can\'t reach the server</string>
-    <string name="dropping">Dropping…</string>
+    <string name="dropping">Sending…</string>
     <string name="retry">Try again</string>
     <string name="room_full">This room already has two people.</string>
     <string name="yours">Yours</string>
@@ -20,7 +22,8 @@
     <string name="photo">Photo</string>
     <string name="animated_gif">Animated GIF</string>
     <string name="server_label">Server address</string>
-    <string name="server_hint">http://192.168.1.20:43123</string>
-    <string name="server_help">On a phone, use the address of the computer running the server. This phone remembers it.</string>
+    <string name="server_hint">https://your-server.example</string>
+    <string name="server_help">This address works on any network. The phone remembers it.</string>
     <string name="open_box">Open the box</string>
+    <string name="close">Close</string>
 </resources>

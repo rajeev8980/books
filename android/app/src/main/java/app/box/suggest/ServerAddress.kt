@@ -11,7 +11,16 @@ object ServerAddress {
             .getString(KEY, null)
             ?.trim()
             .orEmpty()
-        return saved.ifBlank { BuildConfig.SERVER_URL }
+        if (saved.isBlank() || isDeviceLocal(saved)) return BuildConfig.SERVER_URL
+        return saved
+    }
+
+    private fun isDeviceLocal(url: String): Boolean {
+        val host = url.substringAfter("://", url)
+            .substringBefore("/")
+            .substringBefore(":")
+            .lowercase()
+        return host == "10.0.2.2" || host == "127.0.0.1" || host == "localhost" || host == "0.0.0.0"
     }
 
     fun save(context: Context, url: String) {

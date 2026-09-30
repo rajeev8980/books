@@ -1,13 +1,13 @@
 package app.box.suggest.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,9 +19,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,16 +35,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -66,100 +59,126 @@ fun BoxScreen(
     onDropText: (String) -> Unit,
     onPick: () -> Unit,
     onRetry: () -> Unit,
+    onLeave: () -> Unit,
 ) {
     val context = LocalContext.current
     val imageLoader = (context.applicationContext as BoxApplication).imageLoader
     var draft by remember { mutableStateOf("") }
+    val canSend = state.canDrop && draft.isNotBlank()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Ink)
+            .background(Black)
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .imePadding()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        Text(
-            text = stringResource(R.string.title),
-            style = MaterialTheme.typography.headlineLarge,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = statusLine(state),
-            style = MaterialTheme.typography.bodyMedium,
-            color = Muted,
-        )
-        if (state.serverLabel.isNotBlank()) {
-            Text(
-                text = state.serverLabel,
-                style = MaterialTheme.typography.labelMedium,
-                color = Muted.copy(alpha = 0.75f),
-            )
-        }
-
-        Box(
+        Header(onLeave)
+        Spacer(Modifier.height(16.dp))
+        Column(
             modifier = Modifier
                 .weight(1f)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.Top,
+        ) {
+            when {
+                state.phase == Phase.Rejected -> BubbleText(state.notice ?: stringResource(R.string.room_full))
+                state.phase == Phase.Connecting -> BubbleText(stringResource(R.string.connecting))
+                state.busy && state.yours == null && state.theirs == null ->
+                    BubbleText(stringResource(R.string.dropping))
+                state.yours == null && state.theirs == null ->
+                    BubbleText(stringResource(R.string.greeting))
+                else -> {
+                    state.yours?.let { NoteBubble(it, imageLoader) }
+                    if (state.yours != null && state.theirs != null) Spacer(Modifier.height(10.dp))
+                    state.theirs?.let { NoteBubble(it, imageLoader) }
+                }
+            }
+            state.banner?.let { banner ->
+                Spacer(Modifier.height(12.dp))
+                Text(text = banner, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        Text(
+            text = statusLine(state),
+            modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 16.dp, bottom = 12.dp),
+                .padding(bottom = 10.dp),
+            color = Muted,
+            style = MaterialTheme.typography.labelMedium,
+        )
+        if (state.phase == Phase.Rejected) {
+            Text(
+                text = stringResource(R.string.retry),
+                color = White,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .border(1.dp, White, RoundedCornerShape(20.dp))
+                    .clickable(onClick = onRetry)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+        }
+        Composer(
+            draft = draft,
+            onDraft = { if (it.length <= Limits.MAX_TEXT) draft = it },
+            enabled = state.canDrop,
+            canSend = canSend,
+            onSend = {
+                val text = draft
+                draft = ""
+                onDropText(text)
+            },
+            onPick = onPick,
+        )
+    }
+}
+
+@Composable
+private fun Header(onLeave: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Black)
+            .border(1.dp, Line, RoundedCornerShape(22.dp))
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(BlackCard),
             contentAlignment = Alignment.Center,
         ) {
-            SuggestionBox(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight()
-                    .heightIn(max = 520.dp),
-            ) {
-                BoxInterior(state, imageLoader)
-            }
+            Icon(
+                painter = painterResource(R.drawable.ic_bulb),
+                contentDescription = null,
+                tint = White,
+                modifier = Modifier.size(22.dp),
+            )
         }
-
-        if (state.phase == Phase.InRoom) {
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = stringResource(R.string.vanish),
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
-                color = Cream,
-                fontFamily = FontFamily.Serif,
-                fontStyle = FontStyle.Italic,
-                fontSize = 16.sp,
+                text = stringResource(R.string.title),
+                style = MaterialTheme.typography.headlineLarge,
+                fontSize = 22.sp,
             )
-            Spacer(Modifier.height(12.dp))
-        }
-
-        state.banner?.let { banner ->
             Text(
-                text = banner,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.bodyMedium,
+                text = stringResource(R.string.subtitle),
+                color = Muted,
+                style = MaterialTheme.typography.labelMedium,
             )
         }
-
-        if (state.phase == Phase.InRoom) {
-            DropTray(
-                draft = draft,
-                onDraft = { if (it.length <= Limits.MAX_TEXT) draft = it },
-                canDrop = state.canDrop,
-                onDrop = {
-                    val text = draft
-                    draft = ""
-                    onDropText(text)
-                },
-                onPick = onPick,
+        IconButton(onClick = onLeave) {
+            Icon(
+                painter = painterResource(R.drawable.ic_close),
+                contentDescription = stringResource(R.string.close),
+                tint = White,
             )
-        } else if (state.phase == Phase.Offline || state.phase == Phase.Rejected) {
-            Button(
-                onClick = onRetry,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Wax, contentColor = Cream),
-            ) {
-                Text(stringResource(R.string.retry))
-            }
         }
     }
 }
@@ -167,144 +186,63 @@ fun BoxScreen(
 @Composable
 private fun statusLine(state: BoxUiState): String {
     return when (state.phase) {
-        Phase.Setup -> stringResource(R.string.server_label)
         Phase.Connecting -> stringResource(R.string.connecting)
-        Phase.Offline -> stringResource(R.string.offline)
         Phase.Rejected -> stringResource(R.string.room_full)
         Phase.InRoom -> if (state.occupancy >= 2) {
             stringResource(R.string.paired)
         } else {
             stringResource(R.string.waiting)
         }
+        else -> stringResource(R.string.waiting)
     }
 }
 
 @Composable
-private fun SuggestionBox(
-    modifier: Modifier = Modifier,
-    content: @Composable BoxScope.() -> Unit,
-) {
-    val boxLabel = stringResource(R.string.title)
-    Column(
-        modifier = modifier
-            .shadow(12.dp, RoundedCornerShape(28.dp))
-            .clip(RoundedCornerShape(28.dp))
-            .background(Wood)
-            .padding(12.dp)
-            .semantics { contentDescription = boxLabel },
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .width(92.dp)
-                .height(8.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(Slot),
-        )
-        Spacer(Modifier.height(12.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Paper),
-            contentAlignment = Alignment.Center,
-            content = content,
-        )
-    }
-}
-
-@Composable
-private fun BoxScope.BoxInterior(
-    state: BoxUiState,
-    imageLoader: coil3.ImageLoader,
-) {
-    when {
-        state.phase == Phase.Rejected -> CenterNote(state.notice ?: stringResource(R.string.room_full))
-        state.phase == Phase.Offline -> CenterNote(stringResource(R.string.offline))
-        state.phase == Phase.Connecting -> CenterNote(stringResource(R.string.connecting))
-        state.busy && state.yours == null && state.theirs == null -> CenterNote(stringResource(R.string.dropping))
-        state.yours == null && state.theirs == null -> {
-            Text(
-                text = stringResource(R.string.empty),
-                style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center,
-                color = InkText,
-                modifier = Modifier.padding(24.dp),
-            )
-        }
-        else -> {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                state.yours?.let { note ->
-                    NoteCard(note, imageLoader, Modifier.weight(1f))
-                }
-                state.theirs?.let { note ->
-                    NoteCard(note, imageLoader, Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BoxScope.CenterNote(text: String) {
+private fun BubbleText(text: String) {
     Text(
         text = text,
-        modifier = Modifier.padding(24.dp),
+        color = White,
         style = MaterialTheme.typography.bodyLarge,
-        textAlign = TextAlign.Center,
-        color = InkText,
+        modifier = Modifier
+            .fillMaxWidth(0.92f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Bubble)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
     )
 }
 
 @Composable
-private fun NoteCard(
+private fun NoteBubble(
     suggestion: Suggestion,
     imageLoader: coil3.ImageLoader,
-    modifier: Modifier = Modifier,
 ) {
-    val label = stringResource(if (suggestion.mine) R.string.yours else R.string.theirs)
     Column(
-        modifier = modifier
-            .fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth(0.92f)
             .clip(RoundedCornerShape(16.dp))
-            .background(PaperCard)
-            .padding(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+            .background(Bubble)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
     ) {
         Text(
-            text = label.uppercase(),
+            text = stringResource(if (suggestion.mine) R.string.yours else R.string.theirs),
+            color = Muted,
             style = MaterialTheme.typography.labelMedium,
         )
         Spacer(Modifier.height(6.dp))
         when (suggestion.kind) {
-            Kind.Text -> {
-                Text(
-                    text = suggestion.text.orEmpty(),
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center,
-                    maxLines = 8,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            Kind.Text -> Text(
+                text = suggestion.text.orEmpty(),
+                color = White,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis,
+            )
             Kind.Image, Kind.Gif -> {
                 val context = LocalContext.current
                 val description = stringResource(
                     if (suggestion.kind == Kind.Gif) R.string.animated_gif else R.string.photo,
                 )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
+                Box {
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(suggestion.bytes)
@@ -316,7 +254,8 @@ private fun NoteCard(
                         contentDescription = description,
                         contentScale = ContentScale.Fit,
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp)
                             .clip(RoundedCornerShape(12.dp)),
                     )
                     if (suggestion.kind == Kind.Gif) {
@@ -326,9 +265,9 @@ private fun NoteCard(
                                 .align(Alignment.BottomStart)
                                 .padding(8.dp)
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Ink.copy(alpha = 0.72f))
+                                .background(Black.copy(alpha = 0.72f))
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
-                            color = Cream,
+                            color = White,
                             fontSize = 10.sp,
                         )
                     }
@@ -339,69 +278,61 @@ private fun NoteCard(
 }
 
 @Composable
-private fun DropTray(
+private fun Composer(
     draft: String,
     onDraft: (String) -> Unit,
-    canDrop: Boolean,
-    onDrop: () -> Unit,
+    enabled: Boolean,
+    canSend: Boolean,
+    onSend: () -> Unit,
     onPick: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(Paper)
-            .padding(6.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(
-            onClick = onPick,
-            enabled = canDrop,
-            modifier = Modifier.size(48.dp),
-        ) {
+        IconButton(onClick = onPick, enabled = enabled) {
             Icon(
                 painter = painterResource(R.drawable.ic_image),
                 contentDescription = stringResource(R.string.pick),
-                tint = InkText,
+                tint = if (enabled) White else Muted,
             )
         }
         OutlinedTextField(
             value = draft,
             onValueChange = onDraft,
             modifier = Modifier.weight(1f),
-            enabled = canDrop,
+            enabled = enabled,
             singleLine = true,
-            placeholder = {
-                Text(stringResource(R.string.hint), color = MutedInk)
-            },
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = InkText, fontSize = 16.sp),
-            shape = RoundedCornerShape(14.dp),
+            placeholder = { Text(stringResource(R.string.hint), color = Muted) },
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = White),
+            shape = RoundedCornerShape(28.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = InkText,
-                unfocusedTextColor = InkText,
-                disabledTextColor = MutedInk,
-                cursorColor = Wax,
-                focusedBorderColor = Wax,
-                unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                disabledBorderColor = androidx.compose.ui.graphics.Color.Transparent,
-                focusedContainerColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.35f),
-                unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                focusedTextColor = White,
+                unfocusedTextColor = White,
+                disabledTextColor = Muted,
+                cursorColor = White,
+                focusedBorderColor = White,
+                unfocusedBorderColor = Line,
+                disabledBorderColor = Line,
+                focusedContainerColor = Black,
+                unfocusedContainerColor = Black,
+                disabledContainerColor = Black,
             ),
         )
-        Spacer(Modifier.width(6.dp))
-        Button(
-            onClick = onDrop,
-            enabled = canDrop && draft.isNotBlank(),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Wax,
-                contentColor = Cream,
-                disabledContainerColor = Wax.copy(alpha = 0.35f),
-                disabledContentColor = Cream.copy(alpha = 0.7f),
-            ),
+        Spacer(Modifier.width(8.dp))
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(if (canSend) White else Line)
+                .clickable(enabled = canSend, onClick = onSend),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(stringResource(R.string.drop))
+            Icon(
+                painter = painterResource(R.drawable.ic_send),
+                contentDescription = stringResource(R.string.drop),
+                tint = if (canSend) Black else Muted,
+            )
         }
     }
 }

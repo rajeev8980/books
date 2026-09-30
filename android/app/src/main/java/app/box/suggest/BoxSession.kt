@@ -101,10 +101,16 @@ class BoxSession(
         }
     }
 
-    fun close() {
+    fun disconnect() {
         generation.incrementAndGet()
+        rejected = false
+        clientId = null
         socket?.cancel()
         socket = null
+    }
+
+    fun close() {
+        disconnect()
         http.dispatcher.executorService.shutdown()
         http.connectionPool.evictAll()
     }

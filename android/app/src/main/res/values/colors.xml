@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="ink">#FF1A1714</color>
+    <color name="ink">#FF000000</color>
     <color name="wax">#FFC4552A</color>
     <color name="paper">#FFF4E7D4</color>
 </resources>

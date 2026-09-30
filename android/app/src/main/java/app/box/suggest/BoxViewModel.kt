@@ -38,6 +38,10 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
         onEvent = ::onEvent,
     )
 
+    init {
+        openBox(savedUrl)
+    }
+
     fun openBox(raw: String) {
         val url = ServerAddress.normalize(raw)
         if (url == null) {
@@ -117,6 +121,23 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
 
     fun retry() {
         openBox(_state.value.serverUrl)
+        viewModelScope.launch { purgeEverything() }
+    }
+
+    fun leave() {
+        session.disconnect()
+        selfId = null
+        _state.update {
+            it.copy(
+                phase = Phase.Setup,
+                occupancy = 0,
+                yours = null,
+                theirs = null,
+                busy = false,
+                banner = null,
+                notice = null,
+            )
+        }
         viewModelScope.launch { purgeEverything() }
     }
 

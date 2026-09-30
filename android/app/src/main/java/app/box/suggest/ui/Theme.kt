@@ -10,56 +10,57 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-val Ink = Color(0xFF1A1714)
-val InkRaised = Color(0xFF2A241F)
-val Wood = Color(0xFF4A372C)
-val Slot = Color(0xFF1A120E)
-val Paper = Color(0xFFF4E7D4)
-val PaperCard = Color(0xFFFFF8EE)
-val Cream = Color(0xFFF6F0E6)
-val Muted = Color(0xFFB7A89A)
-val InkText = Color(0xFF241C16)
-val MutedInk = Color(0xFF7A6A5C)
-val Wax = Color(0xFFC4552A)
+val Black = Color(0xFF000000)
+val BlackCard = Color(0xFF111111)
+val Bubble = Color(0xFF1C1C1C)
+val Line = Color(0xFF2A2A2A)
+val White = Color(0xFFFFFFFF)
+val Muted = Color(0xFF9A9A9A)
+val Ink = Black
+val Cream = White
+val InkText = White
+val MutedInk = Muted
+val Wax = White
+val Paper = Black
+val PaperCard = Bubble
 
 @Composable
 fun BoxTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Wax,
-            onPrimary = Cream,
-            background = Ink,
-            surface = InkRaised,
-            onSurface = Cream,
+            primary = White,
+            onPrimary = Black,
+            background = Black,
+            surface = BlackCard,
+            onSurface = White,
             onSurfaceVariant = Muted,
-            error = Color(0xFFFFB4A2),
+            error = Color(0xFFFF8A80),
         ),
         typography = Typography(
             headlineLarge = TextStyle(
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.Medium,
-                fontSize = 34.sp,
-                lineHeight = 40.sp,
-                color = Cream,
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Bold,
+                fontSize = 28.sp,
+                lineHeight = 34.sp,
+                color = White,
             ),
             bodyLarge = TextStyle(
-                fontFamily = FontFamily.Serif,
-                fontSize = 22.sp,
-                lineHeight = 28.sp,
-                color = InkText,
+                fontFamily = FontFamily.SansSerif,
+                fontSize = 16.sp,
+                lineHeight = 22.sp,
+                color = White,
             ),
             bodyMedium = TextStyle(
                 fontFamily = FontFamily.SansSerif,
                 fontSize = 15.sp,
                 lineHeight = 20.sp,
-                color = Cream,
+                color = White,
             ),
             labelMedium = TextStyle(
                 fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.Medium,
-                fontSize = 12.sp,
-                letterSpacing = 0.6.sp,
-                color = MutedInk,
+                fontSize = 13.sp,
+                color = Muted,
             ),
         ),
         content = content,

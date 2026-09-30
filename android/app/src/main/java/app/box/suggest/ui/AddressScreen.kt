@@ -24,12 +24,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.box.suggest.R
-import androidx.compose.ui.res.stringResource
 
 @Composable
 fun AddressScreen(
@@ -41,22 +39,20 @@ fun AddressScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Ink)
+            .background(Black)
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .imePadding()
-            .padding(horizontal = 24.dp, vertical = 28.dp),
+            .padding(horizontal = 20.dp, vertical = 24.dp),
     ) {
         Text(
             text = stringResource(R.string.title),
             style = MaterialTheme.typography.headlineLarge,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
-            text = stringResource(R.string.vanish),
-            color = Cream,
-            fontFamily = FontFamily.Serif,
-            fontStyle = FontStyle.Italic,
-            fontSize = 18.sp,
+            text = stringResource(R.string.subtitle),
+            color = Muted,
+            style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.height(28.dp))
         Text(
@@ -70,17 +66,17 @@ fun AddressScreen(
             onValueChange = { address = it },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            placeholder = { Text(stringResource(R.string.server_hint), color = MutedInk) },
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = InkText, fontSize = 16.sp),
+            placeholder = { Text(stringResource(R.string.server_hint), color = Muted) },
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = White, fontSize = 16.sp),
             shape = RoundedCornerShape(16.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = InkText,
-                unfocusedTextColor = InkText,
-                cursorColor = Wax,
-                focusedBorderColor = Wax,
-                unfocusedBorderColor = Muted.copy(alpha = 0.4f),
-                focusedContainerColor = Paper,
-                unfocusedContainerColor = Paper,
+                focusedTextColor = White,
+                unfocusedTextColor = White,
+                cursorColor = White,
+                focusedBorderColor = White,
+                unfocusedBorderColor = Line,
+                focusedContainerColor = Black,
+                unfocusedContainerColor = Black,
             ),
         )
         Spacer(Modifier.height(10.dp))
@@ -102,7 +98,7 @@ fun AddressScreen(
             onClick = { onOpen(address) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Wax, contentColor = Cream),
+            colors = ButtonDefaults.buttonColors(containerColor = White, contentColor = Black),
         ) {
             Text(stringResource(R.string.open_box))
         }

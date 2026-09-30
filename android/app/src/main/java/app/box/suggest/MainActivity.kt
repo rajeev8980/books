@@ -20,8 +20,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(0xFF1A1714.toInt()),
-            navigationBarStyle = SystemBarStyle.dark(0xFF1A1714.toInt()),
+            statusBarStyle = SystemBarStyle.dark(0xFF000000.toInt()),
+            navigationBarStyle = SystemBarStyle.dark(0xFF000000.toInt()),
         )
         setContent {
             val model: BoxViewModel = viewModel()
@@ -50,6 +50,7 @@ class MainActivity : ComponentActivity() {
                             )
                         },
                         onRetry = model::retry,
+                        onLeave = model::leave,
                     )
                 }
             }
