@@ -50,7 +50,6 @@ class MainActivity : ComponentActivity() {
                             )
                         },
                         onRetry = model::retry,
-                        onLeave = model::leave,
                     )
                 }
             }

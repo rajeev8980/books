@@ -59,7 +59,6 @@ fun BoxScreen(
     onDropText: (String) -> Unit,
     onPick: () -> Unit,
     onRetry: () -> Unit,
-    onLeave: () -> Unit,
 ) {
     val context = LocalContext.current
     val imageLoader = (context.applicationContext as BoxApplication).imageLoader
@@ -74,8 +73,6 @@ fun BoxScreen(
             .imePadding()
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
-        Header(onLeave)
-        Spacer(Modifier.height(16.dp))
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -131,42 +128,6 @@ fun BoxScreen(
             },
             onPick = onPick,
         )
-    }
-}
-
-@Composable
-private fun Header(onLeave: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(Black)
-            .border(1.dp, Line, RoundedCornerShape(22.dp))
-            .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(CircleShape)
-                .background(BlackCard),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_bulb),
-                contentDescription = null,
-                tint = White,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-        Spacer(Modifier.weight(1f))
-        IconButton(onClick = onLeave) {
-            Icon(
-                painter = painterResource(R.drawable.ic_close),
-                contentDescription = stringResource(R.string.close),
-                tint = White,
-            )
-        }
     }
 }
 
