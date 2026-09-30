@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+server/data/
+
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml
+android/.cxx/
+android/captures/
+*.apk
+*.aab
+.DS_Store
