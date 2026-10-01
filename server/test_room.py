@@ -127,6 +127,18 @@ def test_health(service: Service) -> None:
     assert response.json()["ok"] is True
 
 
+def test_phone_can_fetch_a_newer_package(service: Service) -> None:
+    version = httpx.get(service.base + "/app/version", timeout=5)
+    assert version.status_code == 200
+    assert "no-store" in version.headers["cache-control"]
+    assert version.json()["versionCode"] >= 2
+    package = httpx.get(service.base + "/app/suggestion-box.apk", timeout=30)
+    assert package.status_code == 200
+    assert package.content[:2] == b"PK"
+    assert "android.package-archive" in package.headers["content-type"]
+    assert "no-store" in package.headers["cache-control"]
+
+
 def test_page_is_fresh_html(service: Service) -> None:
     response = httpx.get(service.base + "/", timeout=2)
     assert response.status_code == 200

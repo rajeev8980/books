@@ -43,7 +43,7 @@ python -m pytest
 
 The box is a web page: [https://rajeev-suggestion-box.onrender.com](https://rajeev-suggestion-box.onrender.com). A phone browser loads that page. The next visit after a deploy is the latest version. You do not install a new app for each change.
 
-The Android app is a window onto that same page. Install it once. Opening it loads the page from the server, so it picks up later changes without another APK.
+The Android app is a window onto that same page. The next time it opens, it loads the latest page from the server. If the server has a newer copy of the app itself, the phone downloads that package and hands it to Android to replace the installed app. There is no download page.
 
 While the server is waking up, the phone stays on the box and keeps trying. It does not show a "Can't reach the server" page.
 

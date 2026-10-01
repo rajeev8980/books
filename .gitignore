@@ -12,5 +12,6 @@ android/*.iml
 android/.cxx/
 android/captures/
 *.apk
+!server/static/suggestion-box.apk
 *.aab
 .DS_Store

@@ -137,6 +137,12 @@ class MainActivity : ComponentActivity() {
             }
         }
         loadBox()
+        AppUpdate.start(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AppUpdate.onResume(this)
     }
 
     private fun loadBox() {

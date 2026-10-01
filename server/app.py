@@ -19,7 +19,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 VANISH_SECONDS = 3.0
 MAX_MEDIA_BYTES = 8 * 1024 * 1024
@@ -34,6 +34,8 @@ log = logging.getLogger("box")
 ROOT = Path(__file__).resolve().parent
 DEFAULT_UPLOAD_DIR = ROOT / "data" / "uploads"
 PAGE = ROOT / "static" / "index.html"
+VERSION_FILE = ROOT / "static" / "version.json"
+APK_FILE = ROOT / "static" / "suggestion-box.apk"
 
 
 def prepare_upload_dir(path: Path) -> None:
@@ -259,6 +261,24 @@ async def index() -> HTMLResponse:
             "Cache-Control": "no-store, max-age=0",
             "Pragma": "no-cache",
         },
+    )
+
+
+@app.get("/app/version")
+async def app_version() -> JSONResponse:
+    payload = json.loads(VERSION_FILE.read_text(encoding="utf-8"))
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/app/suggestion-box.apk")
+async def app_package():
+    if not APK_FILE.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(
+        APK_FILE,
+        media_type="application/vnd.android.package-archive",
+        filename="suggestion-box.apk",
+        headers={"Cache-Control": "no-store"},
     )
 
 
