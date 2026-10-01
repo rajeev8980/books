@@ -1,6 +1,6 @@
-// Present so Android can install the page. Suggestions are not stored.
-self.addEventListener("install", (event) => {
-  event.waitUntil(self.skipWaiting());
+// Makes Android install this as an app. Suggestions are never stored.
+self.addEventListener("install", () => {
+  self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
@@ -13,6 +13,17 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-self.addEventListener("fetch", () => {
-  // Leave every request on the network. Nothing is kept.
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  if (
+    url.pathname.startsWith("/media") ||
+    url.pathname.startsWith("/app/") ||
+    url.pathname === "/health"
+  ) {
+    return;
+  }
+  event.respondWith(fetch(request));
 });

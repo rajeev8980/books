@@ -152,34 +152,44 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "sessionStorage" not in body
 
 
-def test_android_can_install_the_page(service: Service) -> None:
+def test_android_installs_an_app(service: Service) -> None:
     page = httpx.get(service.base + "/", timeout=2)
     assert page.status_code == 200
     assert 'rel="manifest"' in page.text
-    assert 'id="install"' in page.text
+    assert "Install app" in page.text
     assert "beforeinstallprompt" in page.text
     assert "/sw.js" in page.text
+    assert 'name="application-name"' in page.text
 
     manifest = httpx.get(service.base + "/manifest.webmanifest", timeout=2)
     assert manifest.status_code == 200
+    assert "manifest" in manifest.headers["content-type"]
     assert "no-store" in manifest.headers["cache-control"]
     body = manifest.json()
     assert body["display"] == "standalone"
+    assert body["orientation"] == "portrait-primary"
     assert body["start_url"] == "/"
-    assert body["short_name"]
-    sizes = {icon["sizes"] for icon in body["icons"]}
-    assert "192x192" in sizes
-    assert "512x512" in sizes
+    assert body["scope"] == "/"
+    assert body["short_name"] == "Suggest"
+    purposes = {icon["purpose"] for icon in body["icons"]}
+    assert "any" in purposes
+    assert "maskable" in purposes
 
     worker = httpx.get(service.base + "/sw.js", timeout=2)
     assert worker.status_code == 200
     assert "javascript" in worker.headers["content-type"]
     assert "no-store" in worker.headers["cache-control"]
-    assert "fetch" in worker.text
+    assert "respondWith" in worker.text
     assert "caches.put" not in worker.text
     assert "caches.add" not in worker.text
+    assert "/media" in worker.text
 
-    for path in ("/icon-192.png", "/icon-512.png"):
+    for path in (
+        "/icons/icon-192.png",
+        "/icons/icon-512.png",
+        "/icons/icon-192-maskable.png",
+        "/icons/icon-512-maskable.png",
+    ):
         icon = httpx.get(service.base + path, timeout=2)
         assert icon.status_code == 200
         assert icon.headers["content-type"].startswith("image/png")

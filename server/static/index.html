@@ -4,14 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#000000">
+  <meta name="application-name" content="Suggest">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Suggest">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta http-equiv="Cache-Control" content="no-store">
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png">
-  <link rel="apple-touch-icon" href="/icon-192.png">
-  <title>Suggestion box</title>
+  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <title>Suggest</title>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -123,7 +125,7 @@
   <div id="notes"></div>
   <p id="banner" hidden></p>
   <button id="retry" type="button">Try again</button>
-  <button id="install" type="button">Install</button>
+  <button id="install" type="button">Install app</button>
   <div id="status">Opening the box…</div>
   <form id="composer">
     <button id="pick" type="button" aria-label="Drop a photo or GIF" disabled>
@@ -383,8 +385,9 @@
     });
 
     let installPrompt = null;
-    const alreadyInstalled = window.matchMedia("(display-mode: standalone)").matches;
-    if (!alreadyInstalled) {
+    const standalone = window.matchMedia("(display-mode: standalone)").matches
+      || window.matchMedia("(display-mode: fullscreen)").matches;
+    if (!standalone) {
       window.addEventListener("beforeinstallprompt", (event) => {
         event.preventDefault();
         installPrompt = event;
@@ -404,7 +407,7 @@
       });
     }
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }).catch(() => {});
     }
 
     setPhase("connecting");

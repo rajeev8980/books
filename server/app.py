@@ -38,8 +38,13 @@ VERSION_FILE = ROOT / "static" / "version.json"
 APK_FILE = ROOT / "static" / "suggestion-box.apk"
 MANIFEST_FILE = ROOT / "static" / "manifest.webmanifest"
 WORKER_FILE = ROOT / "static" / "sw.js"
-ICON_192 = ROOT / "static" / "icon-192.png"
-ICON_512 = ROOT / "static" / "icon-512.png"
+ICON_DIR = ROOT / "static" / "icons"
+APP_ICONS = {
+    "icon-192.png",
+    "icon-512.png",
+    "icon-192-maskable.png",
+    "icon-512-maskable.png",
+}
 FRESH = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 
 
@@ -273,14 +278,11 @@ async def service_worker():
     return FileResponse(WORKER_FILE, media_type="application/javascript", headers=FRESH)
 
 
-@app.get("/icon-192.png")
-async def icon_192():
-    return FileResponse(ICON_192, media_type="image/png", headers=FRESH)
-
-
-@app.get("/icon-512.png")
-async def icon_512():
-    return FileResponse(ICON_512, media_type="image/png", headers=FRESH)
+@app.get("/icons/{filename}")
+async def app_icon(filename: str):
+    if filename not in APP_ICONS:
+        raise HTTPException(status_code=404)
+    return FileResponse(ICON_DIR / filename, media_type="image/png", headers=FRESH)
 
 
 @app.get("/app/version")
