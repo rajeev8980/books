@@ -146,7 +146,10 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "no-store" in response.headers["cache-control"]
     body = response.text
     assert "Type your suggestion" in body
-    assert "Opening the box" in body
+    assert "Opening the box" not in body
+    assert "APPLICATION LOADING" not in body
+    assert "SERVICE WAKING UP" not in body
+    assert "WELCOME TO RENDER" not in body
     assert "localStorage" not in body
     assert "indexedDB" not in body
     assert "sessionStorage" not in body
@@ -180,6 +183,7 @@ def test_android_installs_an_app(service: Service) -> None:
     assert "javascript" in worker.headers["content-type"]
     assert "no-store" in worker.headers["cache-control"]
     assert "respondWith" in worker.text
+    assert "SERVICE WAKING UP" in worker.text
     assert "caches.put" not in worker.text
     assert "caches.add" not in worker.text
     assert "/media" in worker.text

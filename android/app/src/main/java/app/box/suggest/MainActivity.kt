@@ -8,8 +8,6 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
-import android.view.View
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -20,14 +18,12 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
     private lateinit var web: WebView
-    private lateinit var waiting: TextView
     private val retry = Handler(Looper.getMainLooper())
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pageReady = false
@@ -52,19 +48,7 @@ class MainActivity : ComponentActivity() {
 
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         web = WebView(this).apply { setBackgroundColor(Color.BLACK) }
-        waiting = TextView(this).apply {
-            text = "Opening the box…"
-            setTextColor(Color.parseColor("#9A9A9A"))
-            textSize = 12f
-            setBackgroundColor(Color.BLACK)
-            gravity = Gravity.BOTTOM or Gravity.START
-            setPadding(dp(12), dp(8), dp(12), dp(28))
-        }
         root.addView(web, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT,
-        ))
-        root.addView(waiting, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT,
         ))
@@ -94,7 +78,6 @@ class MainActivity : ComponentActivity() {
                 if (url != null && url.startsWith(BuildConfig.SERVER_URL)) {
                     pageReady = true
                     retry.removeCallbacksAndMessages(null)
-                    waiting.visibility = View.GONE
                 }
             }
 
@@ -147,19 +130,15 @@ class MainActivity : ComponentActivity() {
 
     private fun loadBox() {
         pageReady = false
-        waiting.visibility = View.VISIBLE
         web.loadUrl(BuildConfig.SERVER_URL)
     }
 
     private fun scheduleRetry() {
         if (pageReady) return
-        waiting.visibility = View.VISIBLE
         web.stopLoading()
         retry.removeCallbacksAndMessages(null)
         retry.postDelayed({ loadBox() }, 1000)
     }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
         retry.removeCallbacksAndMessages(null)

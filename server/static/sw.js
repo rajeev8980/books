@@ -13,6 +13,27 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+function renderWakePage(text) {
+  return (
+    text.includes("SERVICE WAKING UP") ||
+    text.includes("APPLICATION LOADING") ||
+    text.includes("WELCOME TO RENDER") ||
+    text.includes("START BUILDING ON RENDER TODAY")
+  );
+}
+
+async function boxDocument(request) {
+  let last = null;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const response = await fetch(request, { cache: "no-store" });
+    const text = await response.clone().text();
+    if (!renderWakePage(text)) return response;
+    last = response;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  return last || fetch(request, { cache: "no-store" });
+}
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -25,5 +46,9 @@ self.addEventListener("fetch", (event) => {
   ) {
     return;
   }
-  event.respondWith(fetch(request));
+  if (request.mode === "navigate" || url.pathname === "/") {
+    event.respondWith(boxDocument(request));
+    return;
+  }
+  event.respondWith(fetch(request, { cache: "no-store" }));
 });

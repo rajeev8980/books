@@ -127,7 +127,7 @@
   <p id="banner" hidden></p>
   <button id="retry" type="button">Try again</button>
   <button id="install" type="button">Install app</button>
-  <div id="status">Opening the box…</div>
+  <div id="status"></div>
   <form id="composer">
     <button id="pick" type="button" aria-label="Drop a photo or GIF" disabled>
       <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
@@ -295,7 +295,7 @@
         you = null;
         if (rejected) return;
         setPhase("connecting");
-        statusEl.textContent = "Opening the box…";
+        statusEl.textContent = "";
         reconnectTimer = setTimeout(connect, 600);
       };
       ws.onerror = () => {
@@ -380,7 +380,7 @@
       }
       shown.clear();
       setPhase("connecting");
-      statusEl.textContent = "Opening the box…";
+      statusEl.textContent = "";
       setBanner("");
       connect();
     });
