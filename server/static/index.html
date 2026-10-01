@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
   <meta name="theme-color" content="#000000">
   <meta name="application-name" content="Suggest">
   <meta name="mobile-web-app-capable" content="yes">
@@ -17,8 +17,20 @@
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; background: #000; color: #fff; }
+    html, body {
+      margin: 0;
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+      height: 100%;
+      overscroll-behavior: none;
+    }
     body {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+      width: 100%;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       display: flex;
       flex-direction: column;
@@ -30,11 +42,13 @@
     }
     #notes {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 10px;
       padding-top: 8px;
+      overscroll-behavior: contain;
     }
     .bubble {
       width: fit-content;
@@ -208,7 +222,7 @@
       notesEl.appendChild(el);
       const timer = setTimeout(() => removeNote(item.id), item.remain);
       shown.set(item.id, { el, url: item.url || "", timer });
-      el.scrollIntoView({ block: "end" });
+      notesEl.scrollTop = notesEl.scrollHeight;
     }
 
     function removeNote(id) {
@@ -410,6 +424,31 @@
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }).catch(() => {});
     }
+
+    let pinning = false;
+    function pinToVisible() {
+      if (pinning) return;
+      pinning = true;
+      if (window.scrollX || window.scrollY) window.scrollTo(0, 0);
+      const view = window.visualViewport;
+      if (view) {
+        document.body.style.transform = "none";
+        document.body.style.top = view.offsetTop + "px";
+        document.body.style.height = view.height + "px";
+      }
+      pinning = false;
+    }
+    if (window.visualViewport) {
+      visualViewport.addEventListener("resize", pinToVisible);
+      visualViewport.addEventListener("scroll", pinToVisible);
+      pinToVisible();
+    }
+    window.addEventListener("resize", pinToVisible);
+    draftEl.addEventListener("focus", () => {
+      requestAnimationFrame(pinToVisible);
+      setTimeout(pinToVisible, 250);
+    });
+    draftEl.addEventListener("input", () => requestAnimationFrame(pinToVisible));
 
     setPhase("connecting");
     connect();
