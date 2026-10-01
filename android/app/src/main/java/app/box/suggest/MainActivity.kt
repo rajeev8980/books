@@ -1,44 +1,167 @@
 package app.box.suggest
 
+import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Intent
+import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
+import android.view.View
+import android.webkit.CookieManager
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.activity.ComponentActivity
-import androidx.activity.SystemBarStyle
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.getValue
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
-import app.box.suggest.ui.BoxScreen
-import app.box.suggest.ui.BoxTheme
+import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
+    private lateinit var web: WebView
+    private lateinit var waiting: TextView
+    private val retry = Handler(Looper.getMainLooper())
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private var pageReady = false
+
+    private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val callback = fileCallback
+        fileCallback = null
+        val uris = if (result.resultCode == Activity.RESULT_OK) {
+            WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+        } else {
+            null
+        }
+        callback?.onReceiveValue(uris)
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(0xFF000000.toInt()),
-            navigationBarStyle = SystemBarStyle.dark(0xFF000000.toInt()),
-        )
-        setContent {
-            val model: BoxViewModel = viewModel()
-            val state by model.state.collectAsStateWithLifecycle()
-            val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-                if (uri != null) model.dropMedia(uri)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
+        window.statusBarColor = Color.BLACK
+        window.navigationBarColor = Color.BLACK
+
+        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+        web = WebView(this).apply { setBackgroundColor(Color.BLACK) }
+        waiting = TextView(this).apply {
+            text = "Opening the box…"
+            setTextColor(Color.parseColor("#9A9A9A"))
+            textSize = 12f
+            setBackgroundColor(Color.BLACK)
+            gravity = Gravity.BOTTOM or Gravity.START
+            setPadding(dp(12), dp(8), dp(12), dp(28))
+        }
+        root.addView(web, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        root.addView(waiting, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        setContentView(root)
+
+        CookieManager.getInstance().setAcceptCookie(false)
+        web.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = false
+            databaseEnabled = false
+            cacheMode = WebSettings.LOAD_NO_CACHE
+            allowFileAccess = true
+            allowContentAccess = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            mediaPlaybackRequiresUserGesture = false
+        }
+        web.clearCache(true)
+        web.clearFormData()
+        web.clearHistory()
+        web.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                val host = request.url?.host ?: return true
+                return !BuildConfig.SERVER_URL.contains(host)
             }
-            BoxTheme {
-                BoxScreen(
-                    state = state,
-                    onDropText = model::dropText,
-                    onPick = {
-                        picker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
-                    onRetry = model::retry,
-                )
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                if (url != null && url.startsWith(BuildConfig.SERVER_URL)) {
+                    pageReady = true
+                    retry.removeCallbacksAndMessages(null)
+                    waiting.visibility = View.GONE
+                }
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                if (request.isForMainFrame) scheduleRetry()
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView,
+                request: WebResourceRequest,
+                errorResponse: WebResourceResponse,
+            ) {
+                if (request.isForMainFrame && errorResponse.statusCode >= 500) scheduleRetry()
             }
         }
+        web.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                view: WebView?,
+                filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?,
+            ): Boolean {
+                fileCallback?.onReceiveValue(null)
+                fileCallback = filePathCallback
+                val intent = try {
+                    fileChooserParams?.createIntent()
+                } catch (_: Exception) {
+                    null
+                } ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "image/*"
+                }
+                return try {
+                    picker.launch(intent)
+                    true
+                } catch (_: Exception) {
+                    fileCallback = null
+                    filePathCallback?.onReceiveValue(null)
+                    false
+                }
+            }
+        }
+        loadBox()
+    }
+
+    private fun loadBox() {
+        pageReady = false
+        waiting.visibility = View.VISIBLE
+        web.loadUrl(BuildConfig.SERVER_URL)
+    }
+
+    private fun scheduleRetry() {
+        if (pageReady) return
+        waiting.visibility = View.VISIBLE
+        web.stopLoading()
+        retry.removeCallbacksAndMessages(null)
+        retry.postDelayed({ loadBox() }, 1000)
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    override fun onDestroy() {
+        retry.removeCallbacksAndMessages(null)
+        fileCallback?.onReceiveValue(null)
+        fileCallback = null
+        web.stopLoading()
+        web.loadUrl("about:blank")
+        web.destroy()
+        super.onDestroy()
     }
 }

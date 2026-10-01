@@ -127,6 +127,19 @@ def test_health(service: Service) -> None:
     assert response.json()["ok"] is True
 
 
+def test_page_is_fresh_html(service: Service) -> None:
+    response = httpx.get(service.base + "/", timeout=2)
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "no-store" in response.headers["cache-control"]
+    body = response.text
+    assert "Type your suggestion" in body
+    assert "Opening the box" in body
+    assert "localStorage" not in body
+    assert "indexedDB" not in body
+    assert "sessionStorage" not in body
+
+
 def test_four_people_and_many_suggestions(service: Service) -> None:
     asyncio.run(_limits(service))
 

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 VANISH_SECONDS = 3.0
 MAX_MEDIA_BYTES = 8 * 1024 * 1024
@@ -33,6 +33,7 @@ PORT = int(os.environ.get("PORT", "43123"))
 log = logging.getLogger("box")
 ROOT = Path(__file__).resolve().parent
 DEFAULT_UPLOAD_DIR = ROOT / "data" / "uploads"
+PAGE = ROOT / "static" / "index.html"
 
 
 def prepare_upload_dir(path: Path) -> None:
@@ -247,6 +248,18 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index() -> HTMLResponse:
+    html = PAGE.read_text(encoding="utf-8")
+    return HTMLResponse(
+        html,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/health")

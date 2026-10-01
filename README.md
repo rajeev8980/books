@@ -39,13 +39,19 @@ source .venv/bin/activate
 python -m pytest
 ```
 
-## Build and install the app
+## Open it
+
+The box is a web page: [https://rajeev-suggestion-box.onrender.com](https://rajeev-suggestion-box.onrender.com). A phone browser loads that page. The next visit after a deploy is the latest version. You do not install a new app for each change.
+
+The Android app is a window onto that same page. Install it once. Opening it loads the page from the server, so it picks up later changes without another APK.
+
+While the server is waking up, the phone stays on the box and keeps trying. It does not show a "Can't reach the server" page.
+
+## Build the Android window
 
 You need JDK 17 or newer and the Android SDK (compile SDK 37).
 
-The app opens the box by itself and stays on that screen. If the server is already awake, the phone is in within a second. If the server is waking up, the phone waits for it and keeps trying. It does not open a "Can't reach the server" page.
-
-`server.url` in `android/local.properties` sets that starting text. Copy the example if you don't have the file yet:
+`server.url` in `android/local.properties` is the page the app opens. Copy the example if you don't have the file yet:
 
 ```bash
 cd android
@@ -61,4 +67,4 @@ cd android
 
 Install it on up to four phones. They all use the same server. A fifth phone is turned away.
 
-The installed app uses `https://rajeev-suggestion-box.onrender.com`. That server stays up on its own, on any network. It speaks WebSocket at `/ws` and accepts photo and GIF uploads at `POST /media`. There is no account and no web app.
+The installed app opens `https://rajeev-suggestion-box.onrender.com`. That server stays up on its own, on any network. It speaks WebSocket at `/ws` and accepts photo and GIF uploads at `POST /media`. There is no account.
