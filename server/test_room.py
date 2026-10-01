@@ -152,6 +152,41 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "sessionStorage" not in body
 
 
+def test_android_can_install_the_page(service: Service) -> None:
+    page = httpx.get(service.base + "/", timeout=2)
+    assert page.status_code == 200
+    assert 'rel="manifest"' in page.text
+    assert 'id="install"' in page.text
+    assert "beforeinstallprompt" in page.text
+    assert "/sw.js" in page.text
+
+    manifest = httpx.get(service.base + "/manifest.webmanifest", timeout=2)
+    assert manifest.status_code == 200
+    assert "no-store" in manifest.headers["cache-control"]
+    body = manifest.json()
+    assert body["display"] == "standalone"
+    assert body["start_url"] == "/"
+    assert body["short_name"]
+    sizes = {icon["sizes"] for icon in body["icons"]}
+    assert "192x192" in sizes
+    assert "512x512" in sizes
+
+    worker = httpx.get(service.base + "/sw.js", timeout=2)
+    assert worker.status_code == 200
+    assert "javascript" in worker.headers["content-type"]
+    assert "no-store" in worker.headers["cache-control"]
+    assert "fetch" in worker.text
+    assert "caches.put" not in worker.text
+    assert "caches.add" not in worker.text
+
+    for path in ("/icon-192.png", "/icon-512.png"):
+        icon = httpx.get(service.base + path, timeout=2)
+        assert icon.status_code == 200
+        assert icon.headers["content-type"].startswith("image/png")
+        assert icon.content.startswith(b"\x89PNG")
+        assert "no-store" in icon.headers["cache-control"]
+
+
 def test_four_people_and_many_suggestions(service: Service) -> None:
     asyncio.run(_limits(service))
 

@@ -4,7 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#000000">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta http-equiv="Cache-Control" content="no-store">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="/icon-192.png">
   <title>Suggestion box</title>
   <style>
     :root { color-scheme: dark; }
@@ -64,6 +70,19 @@
       font-size: 14px;
     }
     #retry.show { display: inline-block; }
+    #install {
+      display: none;
+      width: 100%;
+      min-height: 48px;
+      margin: 0 0 8px;
+      border: 0;
+      border-radius: 24px;
+      background: #fff;
+      color: #000;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    #install.show { display: block; }
     #status { color: #9a9a9a; font-size: 12px; padding: 10px 0; }
     #composer { display: flex; align-items: center; gap: 8px; }
     #pick, #send {
@@ -104,6 +123,7 @@
   <div id="notes"></div>
   <p id="banner" hidden></p>
   <button id="retry" type="button">Try again</button>
+  <button id="install" type="button">Install</button>
   <div id="status">Opening the box…</div>
   <form id="composer">
     <button id="pick" type="button" aria-label="Drop a photo or GIF" disabled>
@@ -126,6 +146,7 @@
     const statusEl = document.getElementById("status");
     const bannerEl = document.getElementById("banner");
     const retryEl = document.getElementById("retry");
+    const installEl = document.getElementById("install");
     const pickEl = document.getElementById("pick");
     const fileEl = document.getElementById("file");
     const draftEl = document.getElementById("draft");
@@ -360,6 +381,31 @@
       setBanner("");
       connect();
     });
+
+    let installPrompt = null;
+    const alreadyInstalled = window.matchMedia("(display-mode: standalone)").matches;
+    if (!alreadyInstalled) {
+      window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        installPrompt = event;
+        installEl.classList.add("show");
+      });
+      installEl.addEventListener("click", async () => {
+        const prompt = installPrompt;
+        if (!prompt) return;
+        installPrompt = null;
+        installEl.classList.remove("show");
+        prompt.prompt();
+        try { await prompt.userChoice; } catch (e) {}
+      });
+      window.addEventListener("appinstalled", () => {
+        installPrompt = null;
+        installEl.classList.remove("show");
+      });
+    }
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    }
 
     setPhase("connecting");
     connect();

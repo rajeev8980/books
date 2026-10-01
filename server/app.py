@@ -36,6 +36,11 @@ DEFAULT_UPLOAD_DIR = ROOT / "data" / "uploads"
 PAGE = ROOT / "static" / "index.html"
 VERSION_FILE = ROOT / "static" / "version.json"
 APK_FILE = ROOT / "static" / "suggestion-box.apk"
+MANIFEST_FILE = ROOT / "static" / "manifest.webmanifest"
+WORKER_FILE = ROOT / "static" / "sw.js"
+ICON_192 = ROOT / "static" / "icon-192.png"
+ICON_512 = ROOT / "static" / "icon-512.png"
+FRESH = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 
 
 def prepare_upload_dir(path: Path) -> None:
@@ -255,13 +260,27 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/", response_class=HTMLResponse)
 async def index() -> HTMLResponse:
     html = PAGE.read_text(encoding="utf-8")
-    return HTMLResponse(
-        html,
-        headers={
-            "Cache-Control": "no-store, max-age=0",
-            "Pragma": "no-cache",
-        },
-    )
+    return HTMLResponse(html, headers=FRESH)
+
+
+@app.get("/manifest.webmanifest")
+async def web_manifest():
+    return FileResponse(MANIFEST_FILE, media_type="application/manifest+json", headers=FRESH)
+
+
+@app.get("/sw.js")
+async def service_worker():
+    return FileResponse(WORKER_FILE, media_type="application/javascript", headers=FRESH)
+
+
+@app.get("/icon-192.png")
+async def icon_192():
+    return FileResponse(ICON_192, media_type="image/png", headers=FRESH)
+
+
+@app.get("/icon-512.png")
+async def icon_512():
+    return FileResponse(ICON_512, media_type="image/png", headers=FRESH)
 
 
 @app.get("/app/version")

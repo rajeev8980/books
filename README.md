@@ -43,6 +43,8 @@ python -m pytest
 
 The box is a web page: [https://b-k8s4.onrender.com](https://b-k8s4.onrender.com). A phone browser loads that page. The next visit after a deploy is the latest version. You do not install a new app for each change.
 
+On an Android phone, open that page in Chrome. When the browser is ready, an Install button appears on the page. One tap adds the box to the home screen and opens it full screen. The installed page still loads from the server, and it still keeps nothing.
+
 The Android app is a window onto that same page. The next time it opens, it loads the latest page from the server. If the server has a newer copy of the app itself, the phone downloads that package and hands it to Android to replace the installed app. There is no download page.
 
 While the server is waking up, the phone stays on the box and keeps trying. It does not show a "Can't reach the server" page.
