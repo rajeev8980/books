@@ -2,22 +2,53 @@ name: Keep the box awake
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
 
 concurrency:
   group: keep-box-awake
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    timeout-minutes: 330
     steps:
-      - name: Wake the suggestion box
+      - name: Ping the suggestion box
         run: |
-          deadline=$((SECONDS + 3300))
+          set -u
+          url="https://b-k8s4.onrender.com/health"
+          # Render sleeps after 15 minutes without a request. Ping well inside that.
+          # Stop before the job limit so the hand-off below still runs.
+          deadline=$((SECONDS + 17400))
           while [ "$SECONDS" -lt "$deadline" ]; do
-            curl -fsS --retry 5 --retry-delay 3 --retry-all-errors --max-time 75 \
-              https://b-k8s4.onrender.com/health
-            sleep 480
+            body="$(curl -sS --retry 5 --retry-delay 4 --retry-all-errors --max-time 90 \
+              -A "suggest-keep-awake" \
+              -H "Cache-Control: no-cache" \
+              "$url" || true)"
+            printf '%s\n' "$body"
+            date -u
+            case "$body" in
+              *'"ok":true'*) ;;
+              *) echo "health was not the box" ;;
+            esac
+            sleep 240
           done
+
+      - name: Hand off to the next run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if gh workflow run keep-box-awake.yml --repo "${{ github.repository }}" --ref main; then
+              echo "next watch requested"
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
