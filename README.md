@@ -43,7 +43,7 @@ python -m pytest
 
 You need JDK 17 or newer and the Android SDK (compile SDK 37).
 
-The app opens the box by itself. The address is already set to a public server, so a phone on any network can use it. The phone remembers whatever address you save. If you run the server yourself, change the address on the first screen (tap the X in the box to get there). An emulator on the same computer can use `http://10.0.2.2:43123`.
+The app opens the box by itself and stays on that screen. If the server is already awake, the phone is in within a second. If the server is waking up, the phone waits for it and keeps trying. It does not open a "Can't reach the server" page.
 
 `server.url` in `android/local.properties` sets that starting text. Copy the example if you don't have the file yet:
 

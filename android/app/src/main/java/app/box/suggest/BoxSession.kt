@@ -4,6 +4,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Dns
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -14,7 +16,10 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.io.IOException
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import android.util.Base64
 
@@ -39,25 +44,79 @@ class BoxSession(
     private val scope: CoroutineScope,
     private val onEvent: (SessionEvent) -> Unit,
 ) {
+    private val dns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            val all = Dns.SYSTEM.lookup(hostname)
+            val v4 = all.filterIsInstance<Inet4Address>()
+            return if (v4.isEmpty()) all else v4 + all.filter { it !is Inet4Address }
+        }
+    }
+
     private val http = OkHttpClient.Builder()
-        .connectTimeout(25, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .pingInterval(15, TimeUnit.SECONDS)
+        .dns(dns)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .pingInterval(10, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
+    private val wakeHttp = http.newBuilder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(70, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .callTimeout(75, TimeUnit.SECONDS)
+        .pingInterval(0, TimeUnit.MILLISECONDS)
         .build()
 
     private val generation = AtomicInteger(0)
 
     @Volatile private var socket: WebSocket? = null
+    @Volatile private var wakeCall: Call? = null
     @Volatile private var clientId: String? = null
     @Volatile private var rejected = false
 
     fun connect() {
         socket?.cancel()
+        wakeCall?.cancel()
         val gen = generation.incrementAndGet()
         rejected = false
-        val request = Request.Builder().url(Urls.webSocket(httpBase)).build()
-        socket = http.newWebSocket(request, Listener(gen))
+        scope.launch(Dispatchers.IO) {
+            if (!awaitServer(gen)) {
+                if (gen == generation.get()) emit(SessionEvent.Offline)
+                return@launch
+            }
+            if (gen != generation.get()) return@launch
+            val request = Request.Builder().url(Urls.webSocket(httpBase)).build()
+            socket = http.newWebSocket(request, Listener(gen))
+        }
+    }
+
+    private fun awaitServer(gen: Int): Boolean {
+        val request = Request.Builder()
+            .url(httpBase.trim().trimEnd('/') + "/health")
+            .header("Cache-Control", "no-cache")
+            .build()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(75)
+        while (gen == generation.get() && System.nanoTime() < deadline) {
+            val call = wakeHttp.newCall(request)
+            wakeCall = call
+            try {
+                call.execute().use { response ->
+                    if (response.isSuccessful) return gen == generation.get()
+                }
+            } catch (_: IOException) {
+                if (gen != generation.get()) return false
+            }
+            val left = deadline - System.nanoTime()
+            if (left <= 0L || gen != generation.get()) return false
+            try {
+                Thread.sleep(minOf(400L, TimeUnit.NANOSECONDS.toMillis(left)))
+            } catch (_: InterruptedException) {
+                return false
+            }
+        }
+        return false
     }
 
     fun sendText(id: String, text: String) {
@@ -105,6 +164,8 @@ class BoxSession(
         generation.incrementAndGet()
         rejected = false
         clientId = null
+        wakeCall?.cancel()
+        wakeCall = null
         socket?.cancel()
         socket = null
     }
@@ -113,6 +174,8 @@ class BoxSession(
         disconnect()
         http.dispatcher.executorService.shutdown()
         http.connectionPool.evictAll()
+        wakeHttp.dispatcher.executorService.shutdown()
+        wakeHttp.connectionPool.evictAll()
     }
 
     private fun emit(event: SessionEvent) {
@@ -120,6 +183,8 @@ class BoxSession(
     }
 
     private inner class Listener(private val gen: Int) : WebSocketListener() {
+        private val once = AtomicBoolean(false)
+
         override fun onMessage(webSocket: WebSocket, text: String) {
             if (text.contains("\"rejected\"")) rejected = true
             scope.launch(Dispatchers.IO) {
@@ -134,12 +199,16 @@ class BoxSession(
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            if (gen != generation.get() || rejected) return
-            emit(SessionEvent.Offline)
+            fail()
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            fail()
+        }
+
+        private fun fail() {
             if (gen != generation.get() || rejected) return
+            if (!once.compareAndSet(false, true)) return
             emit(SessionEvent.Offline)
         }
     }

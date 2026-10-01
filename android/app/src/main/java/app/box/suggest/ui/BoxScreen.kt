@@ -92,7 +92,6 @@ fun BoxScreen(
         ) {
             when (state.phase) {
                 Phase.Rejected -> BubbleText(state.notice ?: stringResource(R.string.room_full))
-                Phase.Connecting -> BubbleText(stringResource(R.string.connecting))
                 else -> {
                     state.notes.forEach { note ->
                         key(note.id) {
@@ -150,10 +149,9 @@ fun BoxScreen(
 @Composable
 private fun statusLine(state: BoxUiState): String {
     return when (state.phase) {
-        Phase.Connecting -> stringResource(R.string.connecting)
         Phase.Rejected -> stringResource(R.string.room_full)
         Phase.InRoom -> stringResource(R.string.members, state.occupancy)
-        else -> stringResource(R.string.members, state.occupancy.coerceAtLeast(1))
+        else -> stringResource(R.string.connecting)
     }
 }
 

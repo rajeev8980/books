@@ -22,7 +22,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
     private val savedUrl = ServerAddress.load(application)
     private val _state = MutableStateFlow(
         BoxUiState(
-            phase = Phase.Setup,
+            phase = Phase.Connecting,
             serverUrl = savedUrl,
             serverLabel = Urls.label(savedUrl),
         ),
@@ -31,7 +31,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
 
     private var selfId: String? = null
     private var userLeft = false
-    private var reconnects = 0
+    private var retryToken = 0
     private var reads = 0
     private val purgeLock = Mutex()
 
@@ -47,7 +47,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openBox(raw: String) {
         userLeft = false
-        reconnects = 0
+        retryToken += 1
         val url = ServerAddress.normalize(raw)
         if (url == null) {
             _state.update { it.copy(banner = "Use an address like http://192.168.1.20:43123") }
@@ -157,9 +157,9 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
         when (event) {
             is SessionEvent.Welcome -> {
                 selfId = event.you
-                reconnects = 0
+                retryToken += 1
                 _state.update {
-                    it.copy(phase = Phase.InRoom, occupancy = event.occupancy, notice = null)
+                    it.copy(phase = Phase.InRoom, occupancy = event.occupancy, notice = null, banner = null)
                 }
             }
             is SessionEvent.Presence -> {
@@ -178,17 +178,14 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
             }
             SessionEvent.Offline -> {
                 if (userLeft || _state.value.phase == Phase.Rejected) return
-                if (reconnects < 5) {
-                    reconnects += 1
-                    val wait = 2000L * reconnects
-                    viewModelScope.launch {
-                        delay(wait)
-                        if (!userLeft) session.connect()
-                    }
-                } else {
-                    _state.update { current ->
-                        if (current.phase == Phase.Rejected) current else current.copy(phase = Phase.Offline)
-                    }
+                if (_state.value.phase != Phase.InRoom) {
+                    _state.update { it.copy(phase = Phase.Connecting, banner = null) }
+                }
+                val token = retryToken
+                viewModelScope.launch {
+                    delay(600)
+                    if (token != retryToken || userLeft || _state.value.phase == Phase.Rejected) return@launch
+                    session.connect()
                 }
             }
             is SessionEvent.Failed -> _state.update { it.copy(banner = event.message) }
