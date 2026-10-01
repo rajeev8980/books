@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: rajeev-suggestion-box
+    name: b
     runtime: python
     plan: free
     buildCommand: pip install -r server/requirements.txt

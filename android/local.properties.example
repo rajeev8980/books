@@ -4,4 +4,4 @@
 # URL of the suggestion box server, as the phone should reach it.
 # A public https address works from any network.
 # Emulator on the same machine: http://10.0.2.2:43123
-server.url=https://rajeev-suggestion-box.onrender.com
+server.url=https://b-k8s4.onrender.com

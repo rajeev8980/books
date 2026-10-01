@@ -17,7 +17,7 @@ val serverUrl: String = (
     (findProperty("server.url") as String?)
         ?: localProperties.getProperty("server.url")
         ?: System.getenv("SERVER_URL")
-        ?: "https://rajeev-suggestion-box.onrender.com"
+        ?: "https://b-k8s4.onrender.com"
     ).trim().trimEnd('/')
 
 fun String.asBuildConfigString(): String =
@@ -31,8 +31,8 @@ android {
         applicationId = "app.box.suggest"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 3
+        versionName = "3.0"
         buildConfigField("String", "SERVER_URL", serverUrl.asBuildConfigString())
     }
 

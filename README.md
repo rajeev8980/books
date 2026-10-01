@@ -41,7 +41,7 @@ python -m pytest
 
 ## Open it
 
-The box is a web page: [https://rajeev-suggestion-box.onrender.com](https://rajeev-suggestion-box.onrender.com). A phone browser loads that page. The next visit after a deploy is the latest version. You do not install a new app for each change.
+The box is a web page: [https://b-k8s4.onrender.com](https://b-k8s4.onrender.com). A phone browser loads that page. The next visit after a deploy is the latest version. You do not install a new app for each change.
 
 The Android app is a window onto that same page. The next time it opens, it loads the latest page from the server. If the server has a newer copy of the app itself, the phone downloads that package and hands it to Android to replace the installed app. There is no download page.
 
@@ -67,4 +67,4 @@ cd android
 
 Install it on up to four phones. They all use the same server. A fifth phone is turned away.
 
-The installed app opens `https://rajeev-suggestion-box.onrender.com`. That server stays up on its own, on any network. It speaks WebSocket at `/ws` and accepts photo and GIF uploads at `POST /media`. There is no account.
+The installed app opens `https://b-k8s4.onrender.com`. That server stays up on its own, on any network. It speaks WebSocket at `/ws` and accepts photo and GIF uploads at `POST /media`. There is no account.
