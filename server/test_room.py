@@ -146,6 +146,8 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "no-store" in response.headers["cache-control"]
     body = response.text
     assert "Type your suggestion" in body
+    assert 'id="draft"' in body
+    assert "contenteditable" in body
     assert "interactive-widget=resizes-content" in body
     assert "visualViewport" in body
     assert "Math.min(window.innerHeight, view.height)" in body

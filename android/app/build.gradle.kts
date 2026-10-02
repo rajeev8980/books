@@ -31,8 +31,8 @@ android {
         applicationId = "app.box.suggest"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "5.0"
+        versionCode = 6
+        versionName = "6.0"
         buildConfigField("String", "SERVER_URL", serverUrl.asBuildConfigString())
     }
 

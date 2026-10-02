@@ -116,17 +116,26 @@
     #draft {
       flex: 1;
       min-width: 0;
+      max-height: 96px;
+      overflow-y: auto;
       border-radius: 28px;
       border: 1px solid #2a2a2a;
       background: #000;
       color: #fff;
       padding: 14px 16px;
       font-size: 16px;
+      line-height: 1.3;
       caret-color: #fff;
+      white-space: pre-wrap;
+      word-break: break-word;
+      outline: none;
     }
-    #draft::placeholder { color: #9a9a9a; }
-    #draft:focus { outline: none; border-color: #fff; }
-    #draft:disabled { color: #9a9a9a; }
+    #draft:focus { border-color: #fff; }
+    #draft[contenteditable="false"] { color: #9a9a9a; }
+    #draft:empty::before {
+      content: "Type your suggestion...";
+      color: #9a9a9a;
+    }
     #send {
       width: 52px;
       height: 52px;
@@ -143,14 +152,14 @@
   <button id="retry" type="button">Try again</button>
   <button id="install" type="button">Install app</button>
   <div id="status"></div>
-  <form id="composer">
+  <form id="composer" autocomplete="off">
     <button id="pick" type="button" aria-label="Drop a photo or GIF" disabled>
       <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
         <path fill="currentColor" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
       </svg>
     </button>
     <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
-    <input id="draft" maxlength="2000" placeholder="Type your suggestion..." autocomplete="off" enterkeyhint="send" disabled>
+    <div id="draft" contenteditable="false" role="textbox" spellcheck="false" enterkeyhint="send" aria-label="Type your suggestion..."></div>
     <button id="send" type="submit" aria-label="Send" disabled>
       <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
         <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -183,13 +192,22 @@
       bannerEl.textContent = text || "";
     }
 
+    function draftValue() {
+      return (draftEl.innerText || "").replace(/\u00a0/g, " ").replace(/\n/g, " ").trim();
+    }
+
+    function refreshSend() {
+      const open = phase === "in";
+      sendEl.disabled = !open || draftValue() === "";
+      sendEl.classList.toggle("ready", !sendEl.disabled);
+    }
+
     function setPhase(next) {
       phase = next;
       const open = next === "in";
       pickEl.disabled = !open;
-      draftEl.disabled = !open;
-      sendEl.disabled = !open || draftEl.value.trim() === "";
-      sendEl.classList.toggle("ready", !sendEl.disabled);
+      draftEl.contentEditable = open ? "true" : "false";
+      refreshSend();
       retryEl.classList.toggle("show", next === "rejected");
     }
 
@@ -318,23 +336,36 @@
       };
     }
 
+    draftEl.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const text = (event.clipboardData && event.clipboardData.getData("text/plain")) || "";
+      document.execCommand("insertText", false, text);
+    });
+
     draftEl.addEventListener("input", () => {
-      sendEl.disabled = phase !== "in" || draftEl.value.trim() === "";
-      sendEl.classList.toggle("ready", !sendEl.disabled);
+      const raw = draftEl.innerText || "";
+      if (raw.replace(/\u00a0/g, " ").trim() === "") draftEl.textContent = "";
+      if ((draftEl.innerText || "").length > 2000) draftEl.textContent = draftEl.innerText.slice(0, 2000);
+      refreshSend();
+    });
+
+    draftEl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      composer.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     });
 
     composer.addEventListener("submit", (event) => {
       event.preventDefault();
-      const text = draftEl.value.trim();
+      const text = draftValue();
       if (phase !== "in" || !text || !socket || socket.readyState !== WebSocket.OPEN) return;
       if (text.length > 2000) {
         setBanner("Keep it under 2000 characters.");
         return;
       }
       const id = crypto.randomUUID();
-      draftEl.value = "";
-      sendEl.disabled = true;
-      sendEl.classList.remove("ready");
+      draftEl.textContent = "";
+      refreshSend();
       setBanner("");
       showNote({ id, mine: true, kind: "text", text, url: "", remain: VANISH_MS });
       socket.send(JSON.stringify({ type: "text", id, text }));
@@ -435,6 +466,7 @@
       document.body.style.transform = "none";
       document.body.style.top = "0px";
       document.body.style.height = Math.round(visible) + "px";
+      document.body.style.paddingBottom = window.innerHeight - visible > 80 ? "8px" : "";
       pinning = false;
     }
     if (navigator.virtualKeyboard) {

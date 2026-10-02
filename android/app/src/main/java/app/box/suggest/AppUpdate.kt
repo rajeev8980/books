@@ -1,7 +1,6 @@
 package app.box.suggest
 
 import android.content.Intent
-import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -89,11 +88,13 @@ object AppUpdate {
     }
 
     private fun install(activity: ComponentActivity): Boolean {
+        val dir = java.io.File(activity.cacheDir, "updates")
+        if (!dir.exists() && !dir.mkdirs()) return false
+        val file = java.io.File(dir, "suggest.apk")
         val request = Request.Builder()
             .url(BuildConfig.SERVER_URL + "/app/suggestion-box.apk")
             .header("Cache-Control", "no-cache")
             .build()
-        val file = java.io.File(activity.cacheDir, "update.apk")
         try {
             http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return false
@@ -101,56 +102,24 @@ object AppUpdate {
                 file.outputStream().use { output -> body.byteStream().use { it.copyTo(output) } }
             }
             if (file.length() < 1000L) return false
-            if (commit(activity, file, silent = Build.VERSION.SDK_INT >= 31)) return true
-            return commit(activity, file, silent = false)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                activity,
+                activity.packageName + ".files",
+                file,
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            activity.runOnUiThread {
+                try {
+                    activity.startActivity(intent)
+                } catch (_: Exception) {
+                }
+            }
+            return true
         } catch (_: Exception) {
             return false
-        } finally {
-            file.delete()
-        }
-    }
-
-    private fun commit(activity: ComponentActivity, file: java.io.File, silent: Boolean): Boolean {
-        val installer = activity.packageManager.packageInstaller
-        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
-            setAppPackageName(activity.packageName)
-            setSize(file.length())
-            if (silent && Build.VERSION.SDK_INT >= 31) {
-                setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
-            }
-        }
-        var session: PackageInstaller.Session? = null
-        return try {
-            val sessionId = installer.createSession(params)
-            session = installer.openSession(sessionId)
-            session.openWrite("base.apk", 0, file.length()).use { output ->
-                file.inputStream().use { input -> input.copyTo(output) }
-                session.fsync(output)
-            }
-            val flags = if (Build.VERSION.SDK_INT >= 31) {
-                android.app.PendingIntent.FLAG_MUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
-            } else {
-                android.app.PendingIntent.FLAG_UPDATE_CURRENT
-            }
-            val pending = android.app.PendingIntent.getBroadcast(
-                activity,
-                sessionId,
-                Intent(activity, UpdateReceiver::class.java),
-                flags,
-            )
-            session.commit(pending.intentSender)
-            true
-        } catch (_: Exception) {
-            try {
-                session?.abandon()
-            } catch (_: Exception) {
-            }
-            false
-        } finally {
-            try {
-                session?.close()
-            } catch (_: Exception) {
-            }
         }
     }
 }
