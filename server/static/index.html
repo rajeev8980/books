@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#000000">
   <meta name="application-name" content="Suggest">
   <meta name="mobile-web-app-capable" content="yes">
@@ -431,18 +431,15 @@
       if (pinning) return;
       pinning = true;
       const view = window.visualViewport;
+      const visible = view ? Math.min(window.innerHeight, view.height) : window.innerHeight;
       document.body.style.transform = "none";
-      if (view) {
-        const keyboard = Math.max(0, window.innerHeight - view.offsetTop - view.height);
-        if (keyboard > 1) {
-          document.body.style.top = view.offsetTop + "px";
-          document.body.style.height = view.height + "px";
-        } else {
-          document.body.style.top = "0px";
-          document.body.style.height = "100%";
-        }
-      }
+      document.body.style.top = "0px";
+      document.body.style.height = Math.round(visible) + "px";
       pinning = false;
+    }
+    if (navigator.virtualKeyboard) {
+      navigator.virtualKeyboard.overlaysContent = false;
+      navigator.virtualKeyboard.addEventListener("geometrychange", pinToVisible);
     }
     if (window.visualViewport) {
       visualViewport.addEventListener("resize", pinToVisible);
