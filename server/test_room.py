@@ -148,8 +148,10 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "Type your suggestion" in body
     assert "interactive-widget=overlays-content" in body
     assert "visualViewport" in body
+    assert "window.innerHeight - view.offsetTop - view.height" in body
     assert "translateY" not in body
     assert "scrollIntoView" not in body
+    assert "scrollTo(0, 0)" not in body
     assert "Opening the box" not in body
     assert "APPLICATION LOADING" not in body
     assert "SERVICE WAKING UP" not in body
