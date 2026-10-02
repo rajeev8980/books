@@ -148,6 +148,8 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "Type your suggestion" in body
     assert 'id="draft"' in body
     assert "contenteditable" in body
+    assert "keepKeyboard" in body
+    assert "draftEl.blur" in body
     assert "interactive-widget=resizes-content" in body
     assert "visualViewport" in body
     assert "Math.min(window.innerHeight, view.height)" in body
