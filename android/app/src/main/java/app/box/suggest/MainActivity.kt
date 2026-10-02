@@ -8,6 +8,11 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
+import android.view.View
+import android.view.ViewStructure
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -48,8 +53,24 @@ class MainActivity : ComponentActivity() {
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
 
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        web = WebView(this).apply { setBackgroundColor(Color.BLACK) }
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }
+        web = object : WebView(this) {
+            override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+                val connection = super.onCreateInputConnection(outAttrs)
+                outAttrs.inputType = outAttrs.inputType or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                outAttrs.imeOptions = outAttrs.imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                return connection
+            }
+
+            override fun onProvideAutofillVirtualStructure(structure: ViewStructure?, flags: Int) {
+            }
+        }.apply {
+            setBackgroundColor(Color.BLACK)
+            importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }
         root.addView(web, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT,
