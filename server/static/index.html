@@ -611,12 +611,31 @@
       markEls.forEach((mark, index) => mark.classList.toggle("on", index < entered.length));
     }
 
+    function hideAddress() {
+      const root = document.documentElement;
+      if (document.fullscreenElement || document.webkitFullscreenElement) return;
+      const enter = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!enter) return;
+      try {
+        const pending = enter.call(root, { navigationUI: "hide" });
+        if (pending && pending.catch) pending.catch(() => {});
+      } catch (e) {}
+    }
+
+    function showAddress() {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (!exit || !(document.fullscreenElement || document.webkitFullscreenElement)) return;
+      const pending = exit.call(document);
+      if (pending && pending.catch) pending.catch(() => {});
+    }
+
     function seal() {
       admitted = false;
       entered = "";
       paintMarks();
       gateEl.classList.remove("miss");
       gateEl.hidden = false;
+      hideAddress();
       clearTimeout(missTimer);
       clearTimeout(reconnectTimer);
       if (socket) {
@@ -640,6 +659,7 @@
     function admit() {
       if (admitted) return;
       admitted = true;
+      showAddress();
       gateEl.hidden = true;
       setPhase("connecting");
       connect();
@@ -663,9 +683,14 @@
       }, 280);
     }
 
+    gateEl.addEventListener("pointerdown", () => {
+      if (!admitted) hideAddress();
+    });
+
     document.getElementById("pad").addEventListener("pointerdown", (event) => {
       const button = event.target.closest("button");
       if (!button || admitted) return;
+      hideAddress();
       event.preventDefault();
       const key = button.dataset.key;
       if (key === "back") {
@@ -687,6 +712,8 @@
         paintMarks();
       }
     });
+
+    document.addEventListener("fullscreenchange", () => pinToVisible());
 
     window.addEventListener("pagehide", () => seal());
     window.addEventListener("pageshow", (event) => {
