@@ -146,7 +146,9 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "no-store" in response.headers["cache-control"]
     body = response.text
     assert "Type your suggestion" in body
-    assert "Opening the box" in body
+    assert 'id="gate"' in body
+    assert "1001" in body
+    assert "Opening the box" not in body
     assert "localStorage" not in body
     assert "indexedDB" not in body
     assert "sessionStorage" not in body
