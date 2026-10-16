@@ -144,9 +144,83 @@
       flex: none;
     }
     #send.ready { background: #fff; color: #000; }
+    #gate {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      padding: calc(18px + env(safe-area-inset-top)) 24px calc(22px + env(safe-area-inset-bottom));
+      background:
+        linear-gradient(118deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.025) 14%, rgba(0, 0, 0, 0) 36%, rgba(0, 0, 0, 0) 68%, rgba(255, 255, 255, 0.035) 100%),
+        #000;
+      touch-action: manipulation;
+    }
+    #gate[hidden] { display: none; }
+    #marks {
+      margin: auto 0 48px;
+      display: flex;
+      gap: 18px;
+    }
+    #marks i {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.28);
+      background: transparent;
+      box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+    }
+    #marks i.on {
+      background: rgba(255, 255, 255, 0.92);
+      border-color: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.25);
+    }
+    #gate.miss #marks { animation: gate-miss 0.28s ease; }
+    @keyframes gate-miss {
+      0%, 100% { transform: translateX(0); }
+      30% { transform: translateX(-8px); }
+      70% { transform: translateX(8px); }
+    }
+    #pad {
+      width: min(320px, 100%);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px 18px;
+      margin-bottom: 8px;
+    }
+    #pad button {
+      height: 64px;
+      border: 0;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.82);
+      font: 300 30px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      border-radius: 16px;
+      padding: 0;
+    }
+    #pad button:active { background: rgba(255, 255, 255, 0.06); color: #fff; }
+    #pad .blank { height: 64px; }
   </style>
 </head>
 <body>
+  <div id="gate" role="dialog" aria-label="Code">
+    <div id="marks" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div id="pad">
+      <button type="button" data-key="1">1</button>
+      <button type="button" data-key="2">2</button>
+      <button type="button" data-key="3">3</button>
+      <button type="button" data-key="4">4</button>
+      <button type="button" data-key="5">5</button>
+      <button type="button" data-key="6">6</button>
+      <button type="button" data-key="7">7</button>
+      <button type="button" data-key="8">8</button>
+      <button type="button" data-key="9">9</button>
+      <span class="blank"></span>
+      <button type="button" data-key="0">0</button>
+      <button type="button" data-key="back" aria-label="Delete">⌫</button>
+    </div>
+  </div>
   <div id="notes"></div>
   <p id="banner" hidden></p>
   <button id="retry" type="button">Try again</button>
@@ -326,7 +400,7 @@
         if (socket !== ws) return;
         socket = null;
         you = null;
-        if (rejected) return;
+        if (rejected || !admitted) return;
         setPhase("connecting");
         statusEl.textContent = "";
         reconnectTimer = setTimeout(connect, 600);
@@ -526,8 +600,127 @@
     });
     draftEl.addEventListener("input", () => requestAnimationFrame(pinToVisible));
 
-    setPhase("connecting");
-    connect();
+    const doorCode = "1001";
+    const gateEl = document.getElementById("gate");
+    const markEls = document.querySelectorAll("#marks i");
+    let admitted = false;
+    let entered = "";
+    let missTimer = 0;
+
+    function paintMarks() {
+      markEls.forEach((mark, index) => mark.classList.toggle("on", index < entered.length));
+    }
+
+    function hideAddress() {
+      const root = document.documentElement;
+      if (document.fullscreenElement || document.webkitFullscreenElement) return;
+      const enter = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!enter) return;
+      try {
+        const pending = enter.call(root, { navigationUI: "hide" });
+        if (pending && pending.catch) pending.catch(() => {});
+      } catch (e) {}
+    }
+
+    function showAddress() {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      if (!exit || !(document.fullscreenElement || document.webkitFullscreenElement)) return;
+      const pending = exit.call(document);
+      if (pending && pending.catch) pending.catch(() => {});
+    }
+
+    function seal() {
+      admitted = false;
+      entered = "";
+      paintMarks();
+      gateEl.classList.remove("miss");
+      gateEl.hidden = false;
+      hideAddress();
+      clearTimeout(missTimer);
+      clearTimeout(reconnectTimer);
+      if (socket) {
+        const ws = socket;
+        socket = null;
+        try { ws.close(); } catch (e) {}
+      }
+      you = null;
+      rejected = false;
+      notesEl.replaceChildren();
+      for (const item of shown.values()) {
+        clearTimeout(item.timer);
+        if (item.url) URL.revokeObjectURL(item.url);
+      }
+      shown.clear();
+      setPhase("connecting");
+      statusEl.textContent = "";
+      setBanner("");
+    }
+
+    function admit() {
+      if (admitted) return;
+      admitted = true;
+      showAddress();
+      gateEl.hidden = true;
+      setPhase("connecting");
+      connect();
+    }
+
+    function pushDigit(digit) {
+      if (admitted || entered.length >= 4) return;
+      entered += digit;
+      paintMarks();
+      if (entered.length < 4) return;
+      if (entered === doorCode) {
+        admit();
+        return;
+      }
+      gateEl.classList.add("miss");
+      clearTimeout(missTimer);
+      missTimer = setTimeout(() => {
+        entered = "";
+        paintMarks();
+        gateEl.classList.remove("miss");
+      }, 280);
+    }
+
+    gateEl.addEventListener("pointerdown", () => {
+      if (!admitted) hideAddress();
+    });
+
+    document.getElementById("pad").addEventListener("pointerdown", (event) => {
+      const button = event.target.closest("button");
+      if (!button || admitted) return;
+      hideAddress();
+      event.preventDefault();
+      const key = button.dataset.key;
+      if (key === "back") {
+        entered = entered.slice(0, -1);
+        paintMarks();
+        return;
+      }
+      pushDigit(key);
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (admitted || gateEl.hidden) return;
+      if (event.key >= "0" && event.key <= "9") {
+        event.preventDefault();
+        pushDigit(event.key);
+      } else if (event.key === "Backspace") {
+        event.preventDefault();
+        entered = entered.slice(0, -1);
+        paintMarks();
+      }
+    });
+
+    document.addEventListener("fullscreenchange", () => pinToVisible());
+
+    window.addEventListener("pagehide", () => seal());
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted) seal();
+    });
+
+    seal();
   </script>
 </body>
 </html>
