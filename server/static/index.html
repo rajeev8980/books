@@ -470,11 +470,13 @@
     });
 
     let installPrompt = null;
+    const installEnabled = false;
     const standalone = window.matchMedia("(display-mode: standalone)").matches
       || window.matchMedia("(display-mode: fullscreen)").matches;
     if (!standalone) {
       window.addEventListener("beforeinstallprompt", (event) => {
         event.preventDefault();
+        if (!installEnabled) return;
         installPrompt = event;
         installEl.classList.add("show");
       });
