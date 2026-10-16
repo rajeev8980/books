@@ -2,15 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#000000">
+  <meta name="application-name" content="Suggest">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Suggest">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta http-equiv="Cache-Control" content="no-store">
-  <title>Suggestion box</title>
+  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+  <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <title>Suggest</title>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; background: #000; color: #fff; }
+    html, body {
+      margin: 0;
+      background: #000;
+      color: #fff;
+      overflow: hidden;
+      height: 100%;
+      overscroll-behavior: none;
+    }
     body {
+      position: fixed;
+      left: 0;
+      right: 0;
+      top: 0;
+      width: 100%;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       display: flex;
       flex-direction: column;
@@ -22,21 +42,24 @@
     }
     #notes {
       flex: 1;
+      min-height: 0;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       gap: 10px;
       padding-top: 8px;
+      overscroll-behavior: contain;
     }
     .bubble {
-      max-width: 92%;
+      width: fit-content;
+      max-width: 75%;
       background: #1c1c1c;
       border-radius: 16px;
       padding: 14px 16px;
       position: relative;
     }
-    .mine { align-self: flex-end; }
-    .theirs { align-self: flex-start; }
+    .mine { align-self: flex-end; margin-left: auto; }
+    .theirs { align-self: flex-start; margin-right: auto; }
     .who { color: #9a9a9a; font-size: 12px; margin-bottom: 6px; }
     .bubble p { margin: 0; font-size: 16px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; }
     .bubble img { max-width: 100%; max-height: 280px; border-radius: 12px; display: block; }
@@ -64,8 +87,21 @@
       font-size: 14px;
     }
     #retry.show { display: inline-block; }
+    #install {
+      display: none;
+      width: 100%;
+      min-height: 48px;
+      margin: 0 0 8px;
+      border: 0;
+      border-radius: 24px;
+      background: #fff;
+      color: #000;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    #install.show { display: block; }
     #status { color: #9a9a9a; font-size: 12px; padding: 10px 0; }
-    #composer { display: flex; align-items: center; gap: 8px; }
+    #composer { display: flex; align-items: center; gap: 8px; flex: none; }
     #pick, #send {
       border: 0;
       background: transparent;
@@ -80,16 +116,26 @@
     #draft {
       flex: 1;
       min-width: 0;
+      max-height: 96px;
+      overflow-y: auto;
       border-radius: 28px;
       border: 1px solid #2a2a2a;
       background: #000;
       color: #fff;
       padding: 14px 16px;
       font-size: 16px;
+      line-height: 1.3;
+      caret-color: #fff;
+      white-space: pre-wrap;
+      word-break: break-word;
+      outline: none;
     }
-    #draft::placeholder { color: #9a9a9a; }
-    #draft:focus { outline: none; border-color: #fff; }
-    #draft:disabled { color: #9a9a9a; }
+    #draft:focus { border-color: #fff; }
+    #draft[contenteditable="false"] { color: #9a9a9a; }
+    #draft:empty::before {
+      content: "Type your suggestion...";
+      color: #9a9a9a;
+    }
     #send {
       width: 52px;
       height: 52px;
@@ -104,15 +150,16 @@
   <div id="notes"></div>
   <p id="banner" hidden></p>
   <button id="retry" type="button">Try again</button>
-  <div id="status">Opening the box…</div>
-  <form id="composer">
+  <button id="install" type="button">Install app</button>
+  <div id="status"></div>
+  <form id="composer" autocomplete="off">
     <button id="pick" type="button" aria-label="Drop a photo or GIF" disabled>
       <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
         <path fill="currentColor" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
       </svg>
     </button>
     <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
-    <input id="draft" maxlength="2000" placeholder="Type your suggestion..." autocomplete="off" enterkeyhint="send" disabled>
+    <div id="draft" contenteditable="false" role="textbox" spellcheck="false" enterkeyhint="send" aria-label="Type your suggestion..."></div>
     <button id="send" type="submit" aria-label="Send" disabled>
       <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
         <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
@@ -126,6 +173,7 @@
     const statusEl = document.getElementById("status");
     const bannerEl = document.getElementById("banner");
     const retryEl = document.getElementById("retry");
+    const installEl = document.getElementById("install");
     const pickEl = document.getElementById("pick");
     const fileEl = document.getElementById("file");
     const draftEl = document.getElementById("draft");
@@ -144,13 +192,22 @@
       bannerEl.textContent = text || "";
     }
 
+    function draftValue() {
+      return (draftEl.innerText || "").replace(/\u00a0/g, " ").replace(/\n/g, " ").trim();
+    }
+
+    function refreshSend() {
+      const open = phase === "in";
+      sendEl.disabled = !open || draftValue() === "";
+      sendEl.classList.toggle("ready", !sendEl.disabled);
+    }
+
     function setPhase(next) {
       phase = next;
       const open = next === "in";
       pickEl.disabled = !open;
-      draftEl.disabled = !open;
-      sendEl.disabled = !open || draftEl.value.trim() === "";
-      sendEl.classList.toggle("ready", !sendEl.disabled);
+      draftEl.contentEditable = open ? "true" : "false";
+      refreshSend();
       retryEl.classList.toggle("show", next === "rejected");
     }
 
@@ -184,7 +241,7 @@
       notesEl.appendChild(el);
       const timer = setTimeout(() => removeNote(item.id), item.remain);
       shown.set(item.id, { el, url: item.url || "", timer });
-      el.scrollIntoView({ block: "end" });
+      notesEl.scrollTop = notesEl.scrollHeight;
     }
 
     function removeNote(id) {
@@ -271,7 +328,7 @@
         you = null;
         if (rejected) return;
         setPhase("connecting");
-        statusEl.textContent = "Opening the box…";
+        statusEl.textContent = "";
         reconnectTimer = setTimeout(connect, 600);
       };
       ws.onerror = () => {
@@ -279,26 +336,77 @@
       };
     }
 
-    draftEl.addEventListener("input", () => {
-      sendEl.disabled = phase !== "in" || draftEl.value.trim() === "";
-      sendEl.classList.toggle("ready", !sendEl.disabled);
+    draftEl.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const text = (event.clipboardData && event.clipboardData.getData("text/plain")) || "";
+      document.execCommand("insertText", false, text);
     });
 
-    composer.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const text = draftEl.value.trim();
+    draftEl.addEventListener("input", () => {
+      const raw = draftEl.innerText || "";
+      if (raw.replace(/\u00a0/g, " ").trim() === "") draftEl.textContent = "";
+      if ((draftEl.innerText || "").length > 2000) draftEl.textContent = draftEl.innerText.slice(0, 2000);
+      refreshSend();
+    });
+
+    let focusToken = 0;
+    let lastSentAt = 0;
+
+    function keepKeyboard() {
+      const token = ++focusToken;
+      const run = () => {
+        if (token !== focusToken) return;
+        if (draftEl.contentEditable !== "true") return;
+        draftEl.focus();
+      };
+      run();
+      requestAnimationFrame(run);
+      setTimeout(run, 80);
+    }
+
+    function sendDraft() {
+      const text = draftValue();
       if (phase !== "in" || !text || !socket || socket.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      if (now - lastSentAt < 300) return;
       if (text.length > 2000) {
         setBanner("Keep it under 2000 characters.");
+        keepKeyboard();
         return;
       }
+      lastSentAt = now;
       const id = crypto.randomUUID();
-      draftEl.value = "";
-      sendEl.disabled = true;
-      sendEl.classList.remove("ready");
+      draftEl.textContent = "";
+      refreshSend();
       setBanner("");
       showNote({ id, mine: true, kind: "text", text, url: "", remain: VANISH_MS });
       socket.send(JSON.stringify({ type: "text", id, text }));
+      keepKeyboard();
+    }
+
+    draftEl.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      sendDraft();
+    });
+
+    sendEl.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+    });
+    sendEl.addEventListener("pointerup", (event) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      sendDraft();
+    });
+    composer.addEventListener("submit", (event) => {
+      event.preventDefault();
+      sendDraft();
+    });
+
+    document.addEventListener("pointerdown", (event) => {
+      const target = event.target;
+      if (target instanceof Node && composer.contains(target)) return;
+      focusToken += 1;
+      draftEl.blur();
     });
 
     pickEl.addEventListener("click", () => fileEl.click());
@@ -356,10 +464,67 @@
       }
       shown.clear();
       setPhase("connecting");
-      statusEl.textContent = "Opening the box…";
+      statusEl.textContent = "";
       setBanner("");
       connect();
     });
+
+    let installPrompt = null;
+    const installEnabled = false;
+    const standalone = window.matchMedia("(display-mode: standalone)").matches
+      || window.matchMedia("(display-mode: fullscreen)").matches;
+    if (!standalone) {
+      window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        if (!installEnabled) return;
+        installPrompt = event;
+        installEl.classList.add("show");
+      });
+      installEl.addEventListener("click", async () => {
+        const prompt = installPrompt;
+        if (!prompt) return;
+        installPrompt = null;
+        installEl.classList.remove("show");
+        prompt.prompt();
+        try { await prompt.userChoice; } catch (e) {}
+      });
+      window.addEventListener("appinstalled", () => {
+        installPrompt = null;
+        installEl.classList.remove("show");
+      });
+    }
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }).catch(() => {});
+    }
+
+    let pinning = false;
+    function pinToVisible() {
+      if (pinning) return;
+      pinning = true;
+      const view = window.visualViewport;
+      const visible = view ? Math.min(window.innerHeight, view.height) : window.innerHeight;
+      document.body.style.transform = "none";
+      document.body.style.top = "0px";
+      document.body.style.height = Math.round(visible) + "px";
+      document.body.style.paddingBottom = window.innerHeight - visible > 80 ? "8px" : "";
+      pinning = false;
+    }
+    if (navigator.virtualKeyboard) {
+      navigator.virtualKeyboard.overlaysContent = false;
+      navigator.virtualKeyboard.addEventListener("geometrychange", pinToVisible);
+    }
+    if (window.visualViewport) {
+      visualViewport.addEventListener("resize", pinToVisible);
+      visualViewport.addEventListener("scroll", pinToVisible);
+      pinToVisible();
+    }
+    window.addEventListener("resize", pinToVisible);
+    draftEl.addEventListener("focus", () => {
+      requestAnimationFrame(pinToVisible);
+      setTimeout(pinToVisible, 100);
+      setTimeout(pinToVisible, 400);
+    });
+    draftEl.addEventListener("input", () => requestAnimationFrame(pinToVisible));
 
     setPhase("connecting");
     connect();
