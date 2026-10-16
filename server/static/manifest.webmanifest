@@ -4,7 +4,7 @@
   "description": "A suggestion box for four people. Notes vanish. Nothing is kept.",
   "start_url": "/",
   "scope": "/",
-  "display": "standalone",
+  "display": "browser",
   "orientation": "portrait-primary",
   "background_color": "#000000",
   "theme_color": "#000000",
