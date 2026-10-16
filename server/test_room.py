@@ -148,6 +148,8 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "Type your suggestion" in body
     assert 'id="gate"' in body
     assert "1001" in body
+    assert 'rel="manifest"' not in body
+    assert "beforeinstallprompt" in body
     assert "Opening the box" not in body
     assert "localStorage" not in body
     assert "indexedDB" not in body

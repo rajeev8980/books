@@ -1,19 +1,30 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="locked">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#000000">
-  <meta name="application-name" content="Suggest">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Suggest">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta http-equiv="Cache-Control" content="no-store">
-  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
   <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
-  <link rel="apple-touch-icon" href="/icons/icon-192.png">
   <title>Suggest</title>
+  <script>
+    window.addEventListener("beforeinstallprompt", function (event) {
+      event.preventDefault();
+    });
+    function hideBar() {
+      if (window.__admitted) return;
+      var root = document.documentElement;
+      if (document.fullscreenElement || document.webkitFullscreenElement) return;
+      var enter = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!enter) return;
+      try {
+        var pending = enter.call(root, { navigationUI: "hide" });
+        if (pending && pending.catch) pending.catch(function () {});
+      } catch (e) {}
+    }
+    window.addEventListener("pointerdown", hideBar, true);
+    window.addEventListener("touchstart", hideBar, true);
+  </script>
   <style>
     :root { color-scheme: dark; }
     * { box-sizing: border-box; }
@@ -24,6 +35,13 @@
       overflow: hidden;
       height: 100%;
       overscroll-behavior: none;
+    }
+    html.locked,
+    html.locked body {
+      position: static;
+      overflow: auto;
+      height: auto;
+      min-height: calc(100% + 160px);
     }
     body {
       position: fixed;
@@ -573,6 +591,7 @@
 
     let pinning = false;
     function pinToVisible() {
+      if (document.documentElement.classList.contains("locked")) return;
       if (pinning) return;
       pinning = true;
       const view = window.visualViewport;
@@ -612,6 +631,13 @@
     }
 
     function hideAddress() {
+      document.documentElement.classList.add("locked");
+      const bury = () => {
+        if (admitted) return;
+        if (window.scrollY < 80) window.scrollTo(0, 120);
+      };
+      bury();
+      requestAnimationFrame(bury);
       const root = document.documentElement;
       if (document.fullscreenElement || document.webkitFullscreenElement) return;
       const enter = root.requestFullscreen || root.webkitRequestFullscreen;
@@ -659,6 +685,9 @@
     function admit() {
       if (admitted) return;
       admitted = true;
+      window.__admitted = true;
+      document.documentElement.classList.remove("locked");
+      window.scrollTo(0, 0);
       showAddress();
       gateEl.hidden = true;
       setPhase("connecting");
