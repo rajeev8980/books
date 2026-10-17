@@ -657,6 +657,7 @@
 
     function seal() {
       admitted = false;
+      window.__admitted = false;
       entered = "";
       paintMarks();
       gateEl.classList.remove("miss");
@@ -691,6 +692,7 @@
       showAddress();
       gateEl.hidden = true;
       setPhase("connecting");
+      armBack();
       connect();
     }
 
@@ -744,6 +746,15 @@
 
     document.addEventListener("fullscreenchange", () => pinToVisible());
 
+    function armBack() {
+      if (history.state && history.state.lockedBox) return;
+      history.pushState({ lockedBox: 1 }, "", location.href);
+    }
+
+    window.addEventListener("popstate", () => seal());
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") seal();
+    });
     window.addEventListener("pagehide", () => seal());
     window.addEventListener("pageshow", (event) => {
       if (event.persisted) seal();
