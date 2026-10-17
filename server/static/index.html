@@ -664,7 +664,6 @@
       window.scrollTo(0, 0);
       gateEl.hidden = true;
       setPhase("connecting");
-      armBack();
       connect();
     }
 
@@ -716,16 +715,24 @@
       }
     });
 
-    function armBack() {
-      if (history.state && history.state.lockedBox) return;
-      history.pushState({ lockedBox: 1 }, "", location.href);
+    let leaving = false;
+    function closeAndForget() {
+      if (leaving) return;
+      leaving = true;
+      seal();
+      try {
+        const opened = window.open("", "_self");
+        if (opened) opened.close();
+      } catch (e) {}
+      location.replace("about:blank");
     }
 
-    window.addEventListener("popstate", () => seal());
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") seal();
+      if (document.visibilityState === "hidden") closeAndForget();
     });
-    window.addEventListener("pagehide", () => seal());
+    window.addEventListener("pagehide", () => {
+      if (!leaving) seal();
+    });
     window.addEventListener("pageshow", (event) => {
       if (event.persisted) seal();
     });
