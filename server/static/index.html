@@ -11,19 +11,9 @@
     window.addEventListener("beforeinstallprompt", function (event) {
       event.preventDefault();
     });
-    function hideBar() {
-      if (window.__admitted) return;
-      var root = document.documentElement;
-      if (document.fullscreenElement || document.webkitFullscreenElement) return;
-      var enter = root.requestFullscreen || root.webkitRequestFullscreen;
-      if (!enter) return;
-      try {
-        var pending = enter.call(root, { navigationUI: "hide" });
-        if (pending && pending.catch) pending.catch(function () {});
-      } catch (e) {}
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(function () {});
     }
-    window.addEventListener("pointerdown", hideBar, true);
-    window.addEventListener("touchstart", hideBar, true);
   </script>
   <style>
     :root { color-scheme: dark; }
@@ -632,27 +622,10 @@
 
     function hideAddress() {
       document.documentElement.classList.add("locked");
-      const bury = () => {
-        if (admitted) return;
-        if (window.scrollY < 80) window.scrollTo(0, 120);
-      };
-      bury();
-      requestAnimationFrame(bury);
-      const root = document.documentElement;
-      if (document.fullscreenElement || document.webkitFullscreenElement) return;
-      const enter = root.requestFullscreen || root.webkitRequestFullscreen;
-      if (!enter) return;
-      try {
-        const pending = enter.call(root, { navigationUI: "hide" });
+      if (document.fullscreenElement && document.exitFullscreen) {
+        const pending = document.exitFullscreen();
         if (pending && pending.catch) pending.catch(() => {});
-      } catch (e) {}
-    }
-
-    function showAddress() {
-      const exit = document.exitFullscreen || document.webkitExitFullscreen;
-      if (!exit || !(document.fullscreenElement || document.webkitFullscreenElement)) return;
-      const pending = exit.call(document);
-      if (pending && pending.catch) pending.catch(() => {});
+      }
     }
 
     function seal() {
@@ -689,7 +662,6 @@
       window.__admitted = true;
       document.documentElement.classList.remove("locked");
       window.scrollTo(0, 0);
-      showAddress();
       gateEl.hidden = true;
       setPhase("connecting");
       armBack();
@@ -743,8 +715,6 @@
         paintMarks();
       }
     });
-
-    document.addEventListener("fullscreenchange", () => pinToVisible());
 
     function armBack() {
       if (history.state && history.state.lockedBox) return;
