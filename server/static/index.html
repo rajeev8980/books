@@ -644,6 +644,7 @@
     }
 
     function stopCallLocal() {
+      setCallSession(false);
       for (const item of callPeers.values()) {
         try { item.pc.close(); } catch (e) {}
         if (item.media) item.media.remove();
@@ -700,10 +701,75 @@
       });
     }
 
+    function speechConstraints() {
+      return {
+        echoCancellation: { ideal: true },
+        echoCancellationType: { ideal: "system" },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+        voiceIsolation: { ideal: true },
+        channelCount: { ideal: 1 },
+      };
+    }
+
+    async function forceEchoControl(stream) {
+      const track = stream && stream.getAudioTracks()[0];
+      if (!track || typeof track.applyConstraints !== "function") return;
+      try {
+        await track.applyConstraints({
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          voiceIsolation: true,
+          channelCount: 1,
+        });
+      } catch (e) {
+        try {
+          await track.applyConstraints({
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          });
+        } catch (err) {}
+      }
+    }
+
+    function nativeCallAudio(active) {
+      const bridge = window.BoxAudio;
+      if (!bridge) return;
+      try {
+        if (!active) bridge.stop();
+        else if (callMedia === "video") bridge.startVideo();
+        else bridge.startVoice();
+      } catch (e) {}
+    }
+
+    function setCallSession(active) {
+      const session = navigator.audioSession;
+      if (session) {
+        try {
+          session.type = active && callMedia !== "video" ? "play-and-record" : "auto";
+        } catch (e) {}
+      }
+      nativeCallAudio(active);
+    }
+
+    async function routePlayback(media) {
+      if (!media || typeof media.setSinkId !== "function" || !navigator.mediaDevices) return;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const outputs = devices.filter((device) => device.kind === "audiooutput");
+        const want = callMedia === "video" ? /speaker|loud/i : /earpiece|receiver|handset/i;
+        const match = outputs.find((device) => want.test(device.label || ""));
+        if (match) await media.setSinkId(match.deviceId);
+      } catch (e) {}
+    }
+
     function playStream(audio, stream) {
       audio.srcObject = stream;
       const played = audio.play();
       if (played && played.catch) played.catch(() => {});
+      routePlayback(audio);
     }
 
     function makePeer(remoteId) {
@@ -905,11 +971,9 @@
 
     async function ensureMic() {
       if (localStream) return localStream;
-      const audio = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      };
+      setCallSession(true);
+      const audio = speechConstraints();
+      const kept = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
       const wantVideo = callMedia === "video";
       if (wantVideo) {
         try {
@@ -920,7 +984,7 @@
           });
         } catch (e) {
           if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
-          localStream = await navigator.mediaDevices.getUserMedia({ audio, video: true });
+          localStream = await navigator.mediaDevices.getUserMedia({ audio: kept, video: true });
         }
         if (localStream.getVideoTracks().length === 0) {
           for (const track of localStream.getTracks()) track.stop();
@@ -931,9 +995,11 @@
         try {
           localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
         } catch (e) {
-          localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+          localStream = await navigator.mediaDevices.getUserMedia({ audio: kept, video: false });
         }
       }
+      await forceEchoControl(localStream);
       rawStream = null;
       for (const track of localStream.getAudioTracks()) track.contentHint = "speech";
       showSelf();
