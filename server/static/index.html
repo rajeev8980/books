@@ -109,6 +109,29 @@
     }
     #install.show { display: block; }
     #status { color: #9a9a9a; font-size: 12px; padding: 10px 0; }
+    #call {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 8px;
+      padding: 12px 14px;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      background: #000;
+      flex: none;
+    }
+    #call[hidden] { display: none; }
+    #call p { margin: 0; font-size: 15px; }
+    #call-actions { display: flex; gap: 8px; }
+    #call button {
+      border-radius: 20px;
+      min-height: 40px;
+      padding: 0 14px;
+      font-size: 14px;
+    }
+    #call-answer { border: 0; background: #fff; color: #000; }
+    #call-decline, #call-end { background: transparent; color: #fff; border: 1px solid #fff; }
     #composer { display: flex; align-items: center; gap: 8px; flex: none; }
     #pick, #send {
       border: 0;
@@ -231,6 +254,14 @@
   </div>
   <div id="notes"></div>
   <p id="banner" hidden></p>
+  <div id="call" hidden>
+    <p id="call-label"></p>
+    <div id="call-actions">
+      <button id="call-answer" type="button">Answer</button>
+      <button id="call-decline" type="button">Decline</button>
+      <button id="call-end" type="button">End</button>
+    </div>
+  </div>
   <button id="retry" type="button">Try again</button>
   <button id="install" type="button">Install app</button>
   <div id="status"></div>
@@ -261,6 +292,18 @@
     const draftEl = document.getElementById("draft");
     const sendEl = document.getElementById("send");
     const composer = document.getElementById("composer");
+    const callEl = document.getElementById("call");
+    const callLabel = document.getElementById("call-label");
+    const callAnswer = document.getElementById("call-answer");
+    const callDecline = document.getElementById("call-decline");
+    const callEnd = document.getElementById("call-end");
+    const iceServers = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
+    const callPeers = new Map();
+    const callPending = new Map();
+    let callId = null;
+    let callRole = "";
+    let localStream = null;
+    let audioCtx = null;
 
     const shown = new Map();
     let socket = null;
@@ -384,7 +427,23 @@
           el.appendChild(p);
           notesEl.appendChild(el);
         } else if (payload.type === "error") {
+          if (callRole === "caller" && callPeers.size === 0 &&
+              (payload.message === "No one else is here." || payload.message === "A call is already on.")) {
+            stopCallLocal();
+          }
           setBanner(payload.message || "Couldn't share that one.");
+        } else if (payload.type === "call-ready") {
+          startOffers(payload);
+        } else if (payload.type === "ring") {
+          onRing(payload);
+        } else if (payload.type === "signal") {
+          onSignal(payload);
+        } else if (payload.type === "answered") {
+          if (callId && payload.id === callId && callRole === "caller") showCall("live", "On a call");
+        } else if (payload.type === "mesh") {
+          offerToOthers(payload);
+        } else if (payload.type === "ended") {
+          if (callId && payload.id === callId) stopCallLocal();
         } else if (payload.type === "suggestion") {
           if (payload.sender === you || shown.has(payload.id)) return;
           let url = "";
@@ -457,14 +516,263 @@
         return;
       }
       lastSentAt = now;
-      const id = crypto.randomUUID();
       draftEl.textContent = "";
       refreshSend();
       setBanner("");
+      if (text.toLowerCase() === "call") {
+        placeCall();
+        keepKeyboard();
+        return;
+      }
+      const id = crypto.randomUUID();
       showNote({ id, mine: true, kind: "text", text, url: "", remain: VANISH_MS });
       socket.send(JSON.stringify({ type: "text", id, text }));
       keepKeyboard();
     }
+
+    function unlockAudio() {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!audioCtx) audioCtx = new Ctx();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+    }
+
+    function showCall(mode, label) {
+      callEl.hidden = false;
+      callLabel.textContent = label;
+      callAnswer.hidden = mode !== "incoming";
+      callDecline.hidden = mode !== "incoming";
+      callEnd.hidden = mode === "incoming";
+    }
+
+    function stopCallLocal() {
+      for (const item of callPeers.values()) {
+        try { item.pc.close(); } catch (e) {}
+        if (item.audio) item.audio.remove();
+      }
+      callPeers.clear();
+      callPending.clear();
+      if (localStream) {
+        for (const track of localStream.getTracks()) track.stop();
+        localStream = null;
+      }
+      callId = null;
+      callRole = "";
+      callLabel.textContent = "";
+      callEl.hidden = true;
+    }
+
+    function sendCall(payload) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify(payload));
+    }
+
+    function bagFor(remoteId) {
+      let bag = callPending.get(remoteId);
+      if (!bag) {
+        bag = { descriptions: [], candidates: [] };
+        callPending.set(remoteId, bag);
+      }
+      return bag;
+    }
+
+    function playStream(audio, stream) {
+      audio.srcObject = stream;
+      audio.play().catch(() => {});
+      if (!audioCtx) return;
+      try {
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(audioCtx.destination);
+      } catch (e) {}
+    }
+
+    function makePeer(remoteId) {
+      const existing = callPeers.get(remoteId);
+      if (existing) return existing;
+      const pc = new RTCPeerConnection({ iceServers });
+      const audio = document.createElement("audio");
+      audio.autoplay = true;
+      audio.playsInline = true;
+      audio.hidden = true;
+      document.body.appendChild(audio);
+      const item = { pc, audio };
+      callPeers.set(remoteId, item);
+      if (localStream) {
+        for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+      }
+      pc.onicecandidate = (event) => {
+        if (!event.candidate || !callId) return;
+        sendCall({ type: "signal", id: callId, to: remoteId, candidate: event.candidate.toJSON() });
+      };
+      pc.ontrack = (event) => {
+        const stream = event.streams[0] || new MediaStream([event.track]);
+        playStream(audio, stream);
+        if (callRole === "caller") showCall("live", "On a call");
+      };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed") setBanner("The call could not connect.");
+      };
+      return item;
+    }
+
+    async function ensureMic() {
+      if (localStream) return localStream;
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      return localStream;
+    }
+
+    async function placeCall() {
+      if (callId || phase !== "in" || !socket || socket.readyState !== WebSocket.OPEN) return;
+      unlockAudio();
+      showCall("outgoing", "Calling...");
+      try {
+        await ensureMic();
+      } catch (e) {
+        stopCallLocal();
+        setBanner("Allow the microphone to call.");
+        return;
+      }
+      callId = crypto.randomUUID();
+      callRole = "caller";
+      sendCall({ type: "call", id: callId });
+    }
+
+    async function startOffers(payload) {
+      if (!callId || payload.id !== callId || callRole !== "caller" || !localStream) return;
+      const peers = Array.isArray(payload.peers) ? payload.peers : [];
+      if (!peers.length) {
+        stopCallLocal();
+        setBanner("No one else is here.");
+        return;
+      }
+      for (const remoteId of peers) {
+        const item = makePeer(remoteId);
+        const offer = await item.pc.createOffer();
+        await item.pc.setLocalDescription(offer);
+        sendCall({
+          type: "signal",
+          id: callId,
+          to: remoteId,
+          description: { type: item.pc.localDescription.type, sdp: item.pc.localDescription.sdp },
+        });
+      }
+    }
+
+    function onRing(payload) {
+      if (!payload.id || !payload.from) return;
+      if (callId && callId !== payload.id) return;
+      callId = payload.id;
+      callRole = "receiver";
+      bagFor(payload.from);
+      showCall("incoming", "Incoming call");
+    }
+
+    async function answerCall() {
+      if (callRole !== "receiver" || !callId) return;
+      unlockAudio();
+      try {
+        await ensureMic();
+      } catch (e) {
+        sendCall({ type: "decline", id: callId });
+        stopCallLocal();
+        setBanner("Allow the microphone to call.");
+        return;
+      }
+      sendCall({ type: "answer", id: callId });
+      showCall("live", "On a call");
+      for (const remoteId of [...callPending.keys()]) await acceptRemote(remoteId);
+    }
+
+    async function offerToOthers(payload) {
+      if (!callId || payload.id !== callId || !localStream) return;
+      const peers = Array.isArray(payload.peers) ? payload.peers : [];
+      for (const remoteId of peers) {
+        if (callPeers.has(remoteId)) continue;
+        const item = makePeer(remoteId);
+        const offer = await item.pc.createOffer();
+        await item.pc.setLocalDescription(offer);
+        sendCall({
+          type: "signal",
+          id: callId,
+          to: remoteId,
+          description: { type: item.pc.localDescription.type, sdp: item.pc.localDescription.sdp },
+        });
+      }
+    }
+
+    async function acceptRemote(remoteId) {
+      const bag = bagFor(remoteId);
+      const offer = bag.descriptions.find((item) => item.type === "offer");
+      if (!offer && !callPeers.has(remoteId)) return;
+      const item = makePeer(remoteId);
+      if (offer && !item.pc.currentRemoteDescription) {
+        await item.pc.setRemoteDescription(offer);
+        const answer = await item.pc.createAnswer();
+        await item.pc.setLocalDescription(answer);
+        sendCall({
+          type: "signal",
+          id: callId,
+          to: remoteId,
+          description: { type: item.pc.localDescription.type, sdp: item.pc.localDescription.sdp },
+        });
+        bag.descriptions = bag.descriptions.filter((item) => item !== offer);
+      }
+      await flushCandidates(item, bag);
+    }
+
+    async function flushCandidates(item, bag) {
+      if (!item.pc.currentRemoteDescription) return;
+      for (const candidate of bag.candidates) {
+        try { await item.pc.addIceCandidate(candidate); } catch (e) {}
+      }
+      bag.candidates = [];
+    }
+
+    async function onSignal(payload) {
+      if (!callId || payload.id !== callId || !payload.from) return;
+      const item = callPeers.get(payload.from);
+      const bag = bagFor(payload.from);
+      if (!item || !item.pc.currentRemoteDescription) {
+        if (payload.description) bag.descriptions.push(payload.description);
+        if (payload.candidate) bag.candidates.push(payload.candidate);
+        if (item && payload.description && payload.description.type === "answer" && !item.pc.currentRemoteDescription) {
+          await item.pc.setRemoteDescription(payload.description);
+          bag.descriptions = bag.descriptions.filter((entry) => entry !== payload.description);
+          await flushCandidates(item, bag);
+          return;
+        }
+        if (localStream) await acceptRemote(payload.from);
+        return;
+      }
+      if (payload.description && payload.description.type === "offer") {
+        await item.pc.setRemoteDescription(payload.description);
+        const answer = await item.pc.createAnswer();
+        await item.pc.setLocalDescription(answer);
+        sendCall({
+          type: "signal",
+          id: callId,
+          to: payload.from,
+          description: { type: item.pc.localDescription.type, sdp: item.pc.localDescription.sdp },
+        });
+      }
+      if (payload.candidate) {
+        try { await item.pc.addIceCandidate(payload.candidate); } catch (e) {}
+      }
+    }
+
+    function declineCall() {
+      if (callId) sendCall({ type: "decline", id: callId });
+      stopCallLocal();
+    }
+
+    function endCall() {
+      if (callId) sendCall({ type: "hangup", id: callId });
+      stopCallLocal();
+    }
+
+    callAnswer.addEventListener("click", () => { answerCall(); });
+    callDecline.addEventListener("click", () => { declineCall(); });
+    callEnd.addEventListener("click", () => { endCall(); });
 
     draftEl.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
@@ -638,6 +946,10 @@
       hideAddress();
       clearTimeout(missTimer);
       clearTimeout(reconnectTimer);
+      if (callId && socket && socket.readyState === WebSocket.OPEN) {
+        try { socket.send(JSON.stringify({ type: "hangup", id: callId })); } catch (e) {}
+      }
+      stopCallLocal();
       if (socket) {
         const ws = socket;
         socket = null;

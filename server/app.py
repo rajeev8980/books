@@ -36,6 +36,20 @@ DEFAULT_UPLOAD_DIR = ROOT / "data" / "uploads"
 PAGE = ROOT / "static" / "index.html"
 VERSION_FILE = ROOT / "static" / "version.json"
 APK_FILE = ROOT / "static" / "suggestion-box.apk"
+MANIFEST_FILE = ROOT / "static" / "manifest.webmanifest"
+WORKER_FILE = ROOT / "static" / "sw.js"
+ICON_DIR = ROOT / "static" / "icons"
+APP_ICONS = {
+    "icon-192.png",
+    "icon-512.png",
+    "icon-192-maskable.png",
+    "icon-512-maskable.png",
+}
+FRESH = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
+NO_ONE_ELSE = "No one else is here."
+CALL_BUSY = "A call is already on."
+MAX_SDP = 65536
+MAX_CANDIDATE = 4096
 
 
 def prepare_upload_dir(path: Path) -> None:
@@ -85,11 +99,20 @@ class Suggestion:
     mime: str | None
 
 
+@dataclass
+class CallSession:
+    id: str
+    caller: str
+    waiting: set[str]
+    live: set[str]
+
+
 class Room:
     def __init__(self, upload_dir: Path) -> None:
         self.upload_dir = upload_dir
         self.clients: dict[str, WebSocket] = {}
         self.suggestions: dict[str, Suggestion] = {}
+        self.call: CallSession | None = None
         self.lock = asyncio.Lock()
         self.tasks: set[asyncio.Task] = set()
 
@@ -118,7 +141,141 @@ class Room:
         if removed is None:
             return
         log.info("left occupancy %s", occupancy)
+        await self.drop_from_call(client_id)
         await self.broadcast({"type": "presence", "event": "left", "occupancy": occupancy})
+
+    async def send_to(self, client_id: str, payload: dict) -> None:
+        async with self.lock:
+            ws = self.clients.get(client_id)
+        if ws is None:
+            return
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            log.info("closed client %s", client_id)
+            await self.disconnect(client_id)
+
+    async def begin_call(self, caller_id: str, call_id: str) -> None:
+        async with self.lock:
+            if caller_id not in self.clients:
+                return
+            ws = self.clients[caller_id]
+            if self.call is not None:
+                busy = True
+                peers: list[str] = []
+            else:
+                busy = False
+                peers = [cid for cid in self.clients if cid != caller_id]
+                if peers:
+                    self.call = CallSession(
+                        id=call_id,
+                        caller=caller_id,
+                        waiting=set(peers),
+                        live=set(),
+                    )
+        if busy:
+            await ws.send_json({"type": "error", "message": CALL_BUSY})
+            return
+        if not peers:
+            await ws.send_json({"type": "error", "message": NO_ONE_ELSE})
+            return
+        await self.send_to(caller_id, {"type": "call-ready", "id": call_id, "peers": peers})
+        for peer in peers:
+            await self.send_to(peer, {"type": "ring", "id": call_id, "from": caller_id})
+
+    async def relay_signal(self, sender_id: str, payload: dict) -> None:
+        call_id = as_uuid(payload.get("id"))
+        target = as_uuid(payload.get("to"))
+        if call_id is None or target is None:
+            return
+        async with self.lock:
+            call = self.call
+            if call is None or call.id != call_id:
+                return
+            members = {call.caller, *call.waiting, *call.live}
+            if sender_id not in members or target not in members or target == sender_id:
+                return
+        message: dict = {"type": "signal", "id": call_id, "from": sender_id}
+        description = payload.get("description")
+        candidate = payload.get("candidate")
+        if isinstance(description, dict):
+            kind = description.get("type")
+            sdp = description.get("sdp")
+            if kind not in ("offer", "answer") or not isinstance(sdp, str) or not sdp or len(sdp) > MAX_SDP:
+                return
+            message["description"] = {"type": kind, "sdp": sdp}
+        elif isinstance(candidate, dict):
+            line = candidate.get("candidate")
+            if not isinstance(line, str) or not line or len(line) > MAX_CANDIDATE:
+                return
+            mid = candidate.get("sdpMid")
+            index = candidate.get("sdpMLineIndex")
+            message["candidate"] = {
+                "candidate": line,
+                "sdpMid": mid if isinstance(mid, str) else None,
+                "sdpMLineIndex": index if isinstance(index, int) else None,
+            }
+        else:
+            return
+        await self.send_to(target, message)
+
+    async def accept_call(self, client_id: str, call_id: str) -> None:
+        async with self.lock:
+            call = self.call
+            if call is None or call.id != call_id or client_id not in call.waiting:
+                return
+            call.waiting.discard(client_id)
+            others = list(call.live)
+            call.live.add(client_id)
+            caller = call.caller
+        await self.send_to(caller, {"type": "answered", "id": call_id, "from": client_id})
+        await self.send_to(client_id, {"type": "mesh", "id": call_id, "peers": others})
+
+    async def decline_call(self, client_id: str, call_id: str) -> None:
+        async with self.lock:
+            call = self.call
+            if call is None or call.id != call_id or client_id not in call.waiting:
+                return
+            call.waiting.discard(client_id)
+            caller = call.caller
+            empty = not call.waiting and not call.live
+        await self.send_to(caller, {"type": "declined", "id": call_id, "from": client_id})
+        if empty:
+            await self.end_call()
+
+    async def hangup(self, client_id: str, call_id: str) -> None:
+        async with self.lock:
+            call = self.call
+            if call is None or call.id != call_id:
+                return
+            involved = client_id == call.caller or client_id in call.waiting or client_id in call.live
+        if involved:
+            await self.end_call()
+
+    async def drop_from_call(self, client_id: str) -> None:
+        async with self.lock:
+            call = self.call
+            if call is None:
+                return
+            if client_id == call.caller:
+                should_end = True
+            else:
+                call.waiting.discard(client_id)
+                call.live.discard(client_id)
+                should_end = not call.waiting and not call.live
+        if should_end:
+            await self.end_call()
+
+    async def end_call(self) -> None:
+        async with self.lock:
+            call = self.call
+            self.call = None
+            if call is None:
+                return
+            targets = [call.caller, *call.waiting, *call.live]
+            call_id = call.id
+        for client_id in targets:
+            await self.send_to(client_id, {"type": "ended", "id": call_id})
 
     async def accept_text(self, sender_id: str, suggestion_id: str, text: str, deadline: float) -> None:
         async with self.lock:
@@ -229,6 +386,7 @@ class Room:
             leftover = list(self.suggestions.values())
             self.suggestions.clear()
             self.clients.clear()
+            self.call = None
         for suggestion in leftover:
             if suggestion.path is not None:
                 try:
@@ -255,13 +413,24 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/", response_class=HTMLResponse)
 async def index() -> HTMLResponse:
     html = PAGE.read_text(encoding="utf-8")
-    return HTMLResponse(
-        html,
-        headers={
-            "Cache-Control": "no-store, max-age=0",
-            "Pragma": "no-cache",
-        },
-    )
+    return HTMLResponse(html, headers=FRESH)
+
+
+@app.get("/manifest.webmanifest")
+async def web_manifest():
+    return FileResponse(MANIFEST_FILE, media_type="application/manifest+json", headers=FRESH)
+
+
+@app.get("/sw.js")
+async def service_worker():
+    return FileResponse(WORKER_FILE, media_type="application/javascript", headers=FRESH)
+
+
+@app.get("/icons/{filename}")
+async def app_icon(filename: str):
+    if filename not in APP_ICONS:
+        raise HTTPException(status_code=404)
+    return FileResponse(ICON_DIR / filename, media_type="image/png", headers=FRESH)
 
 
 @app.get("/app/version")
@@ -370,7 +539,14 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     except json.JSONDecodeError:
         await websocket.send_json({"type": "error", "message": "That wasn't a suggestion."})
         return
-    if not isinstance(payload, dict) or payload.get("type") != "text":
+    if not isinstance(payload, dict):
+        await websocket.send_json({"type": "error", "message": "That wasn't a suggestion."})
+        return
+    kind = payload.get("type")
+    if kind in {"call", "signal", "answer", "decline", "hangup"}:
+        await handle_call_message(client_id, websocket, kind, payload)
+        return
+    if kind != "text":
         await websocket.send_json({"type": "error", "message": "Drop text, or upload a photo or GIF."})
         return
     text = payload.get("text")
@@ -385,7 +561,28 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     if suggestion_id is None:
         await websocket.send_json({"type": "error", "message": "Suggestion id must be a UUID."})
         return
+    if text.lower() == "call":
+        await room.begin_call(client_id, suggestion_id)
+        return
     await room.accept_text(client_id, suggestion_id, text, deadline)
+
+
+async def handle_call_message(client_id: str, websocket: WebSocket, kind: str, payload: dict) -> None:
+    if kind == "signal":
+        await room.relay_signal(client_id, payload)
+        return
+    call_id = as_uuid(payload.get("id"))
+    if call_id is None:
+        await websocket.send_json({"type": "error", "message": "That call could not start."})
+        return
+    if kind == "call":
+        await room.begin_call(client_id, call_id)
+    elif kind == "answer":
+        await room.accept_call(client_id, call_id)
+    elif kind == "decline":
+        await room.decline_call(client_id, call_id)
+    elif kind == "hangup":
+        await room.hangup(client_id, call_id)
 
 
 def main() -> None:
