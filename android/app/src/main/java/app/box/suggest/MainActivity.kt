@@ -31,15 +31,17 @@ class MainActivity : ComponentActivity() {
     private lateinit var waiting: TextView
     private val retry = Handler(Looper.getMainLooper())
     private var fileCallback: ValueCallback<Array<Uri>>? = null
-    private var pendingMic: PermissionRequest? = null
+    private var pendingCapture: PermissionRequest? = null
     private var pageReady = false
 
-    private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val request = pendingMic
-        pendingMic = null
+    private val capturePermission = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        val request = pendingCapture
+        pendingCapture = null
         if (request == null) return@registerForActivityResult
-        if (granted) request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
-        else request.deny()
+        val allowed = grantedCapture(request, grants)
+        if (allowed.isEmpty()) request.deny() else request.grant(allowed)
     }
 
     private val picker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -122,19 +124,26 @@ class MainActivity : ComponentActivity() {
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
-                if (!request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)) {
+                val wantsAudio = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                val wantsVideo = request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                if (!wantsAudio && !wantsVideo) {
                     request.deny()
                     return
                 }
-                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) ==
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    request.grant(arrayOf(PermissionRequest.RESOURCE_AUDIO_CAPTURE))
+                val needed = ArrayList<String>()
+                if (wantsAudio && !hasPermission(android.Manifest.permission.RECORD_AUDIO)) {
+                    needed.add(android.Manifest.permission.RECORD_AUDIO)
+                }
+                if (wantsVideo && !hasPermission(android.Manifest.permission.CAMERA)) {
+                    needed.add(android.Manifest.permission.CAMERA)
+                }
+                if (needed.isEmpty()) {
+                    request.grant(grantedCapture(request, emptyMap()))
                     return
                 }
-                pendingMic?.deny()
-                pendingMic = request
-                micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                pendingCapture?.deny()
+                pendingCapture = request
+                capturePermission.launch(needed.toTypedArray())
             }
 
             override fun onShowFileChooser(
@@ -187,10 +196,31 @@ class MainActivity : ComponentActivity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
+    private fun hasPermission(name: String): Boolean {
+        return checkSelfPermission(name) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun grantedCapture(request: PermissionRequest, grants: Map<String, Boolean>): Array<String> {
+        val allowed = ArrayList<String>()
+        if (request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE) &&
+            (grants[android.Manifest.permission.RECORD_AUDIO] ?: hasPermission(android.Manifest.permission.RECORD_AUDIO))
+        ) {
+            allowed.add(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+        }
+        if (request.resources.contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE) &&
+            (grants[android.Manifest.permission.CAMERA] ?: hasPermission(android.Manifest.permission.CAMERA))
+        ) {
+            allowed.add(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+        }
+        return allowed.toTypedArray()
+    }
+
     override fun onDestroy() {
         retry.removeCallbacksAndMessages(null)
         fileCallback?.onReceiveValue(null)
         fileCallback = null
+        pendingCapture?.deny()
+        pendingCapture = null
         web.stopLoading()
         web.loadUrl("about:blank")
         web.destroy()

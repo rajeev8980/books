@@ -132,6 +132,62 @@
     }
     #call-answer { border: 0; background: #fff; color: #000; }
     #call-decline, #call-end { background: transparent; color: #fff; border: 1px solid #fff; }
+    #call-stage, #call-self { display: none; }
+    #call.video {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      display: block;
+      margin: 0 0 8px;
+      padding: 0;
+      overflow: hidden;
+      border: 0;
+    }
+    body:has(#call.video) #notes { display: none; }
+    #call.video #call-stage {
+      display: grid;
+      position: absolute;
+      inset: 0;
+      gap: 4px;
+      background: #000;
+    }
+    #call.video #call-stage.many {
+      grid-template-columns: 1fr 1fr;
+      grid-auto-rows: 1fr;
+    }
+    #call.video #call-stage video {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      object-fit: cover;
+      background: #111;
+    }
+    #call.video #call-self {
+      display: block;
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 2;
+      width: 96px;
+      height: 140px;
+      object-fit: cover;
+      border-radius: 12px;
+      background: #111;
+      transform: scaleX(-1);
+    }
+    #call.video #call-label,
+    #call.video #call-actions {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      z-index: 3;
+    }
+    #call.video #call-label {
+      bottom: 64px;
+      text-align: center;
+      text-shadow: 0 1px 4px #000;
+    }
+    #call.video #call-actions { bottom: 12px; justify-content: center; }
     #composer { display: flex; align-items: center; gap: 8px; flex: none; }
     #pick, #send {
       border: 0;
@@ -255,6 +311,8 @@
   <div id="notes"></div>
   <p id="banner" hidden></p>
   <div id="call" hidden>
+    <div id="call-stage"></div>
+    <video id="call-self" playsinline autoplay muted hidden></video>
     <p id="call-label"></p>
     <div id="call-actions">
       <button id="call-answer" type="button">Answer</button>
@@ -297,11 +355,14 @@
     const callAnswer = document.getElementById("call-answer");
     const callDecline = document.getElementById("call-decline");
     const callEnd = document.getElementById("call-end");
+    const callStage = document.getElementById("call-stage");
+    const callSelf = document.getElementById("call-self");
     const iceServers = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
     const callPeers = new Map();
     const callPending = new Map();
     let callId = null;
     let callRole = "";
+    let callMedia = "audio";
     let rawStream = null;
     let localStream = null;
     let audioCtx = null;
@@ -440,7 +501,7 @@
         } else if (payload.type === "signal") {
           onSignal(payload);
         } else if (payload.type === "answered") {
-          if (callId && payload.id === callId && callRole === "caller") showCall("live", "On a call");
+          if (callId && payload.id === callId && callRole === "caller") showCall("live", liveLabel());
         } else if (payload.type === "mesh") {
           offerToOthers(payload);
         } else if (payload.type === "ended") {
@@ -520,8 +581,9 @@
       draftEl.textContent = "";
       refreshSend();
       setBanner("");
-      if (text.toLowerCase() === "call") {
-        placeCall();
+      const lowered = text.toLowerCase();
+      if (lowered === "call" || lowered === "video") {
+        placeCall(lowered === "video" ? "video" : "audio");
         keepKeyboard();
         return;
       }
@@ -538,8 +600,19 @@
       if (audioCtx.state === "suspended") audioCtx.resume();
     }
 
+    function liveLabel() {
+      return callMedia === "video" ? "On a video call" : "On a call";
+    }
+
+    function mediaDenied() {
+      return callMedia === "video"
+        ? "Allow the camera and microphone to video call."
+        : "Allow the microphone to call.";
+    }
+
     function showCall(mode, label) {
       callEl.hidden = false;
+      callEl.classList.toggle("video", callMedia === "video");
       callLabel.textContent = label;
       callAnswer.hidden = mode !== "incoming";
       callDecline.hidden = mode !== "incoming";
@@ -549,7 +622,7 @@
     function stopCallLocal() {
       for (const item of callPeers.values()) {
         try { item.pc.close(); } catch (e) {}
-        if (item.audio) item.audio.remove();
+        if (item.media) item.media.remove();
       }
       callPeers.clear();
       callPending.clear();
@@ -561,7 +634,13 @@
       rawStream = null;
       callId = null;
       callRole = "";
+      callMedia = "audio";
+      callStage.replaceChildren();
+      callStage.classList.remove("many");
+      callSelf.srcObject = null;
+      callSelf.hidden = true;
       callLabel.textContent = "";
+      callEl.classList.remove("video");
       callEl.hidden = true;
     }
 
@@ -598,12 +677,18 @@
       const existing = callPeers.get(remoteId);
       if (existing) return existing;
       const pc = new RTCPeerConnection({ iceServers });
-      const audio = document.createElement("audio");
-      audio.autoplay = true;
-      audio.playsInline = true;
-      audio.hidden = true;
-      document.body.appendChild(audio);
-      const item = { pc, audio };
+      const media = document.createElement(callMedia === "video" ? "video" : "audio");
+      media.autoplay = true;
+      media.playsInline = true;
+      media.setAttribute("playsinline", "");
+      if (callMedia === "video") {
+        callStage.appendChild(media);
+        callStage.classList.toggle("many", callStage.querySelectorAll("video").length > 1);
+      } else {
+        media.hidden = true;
+        document.body.appendChild(media);
+      }
+      const item = { pc, media };
       callPeers.set(remoteId, item);
       if (localStream) {
         for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
@@ -614,13 +699,25 @@
       };
       pc.ontrack = (event) => {
         const stream = event.streams[0] || new MediaStream([event.track]);
-        playStream(audio, stream);
-        if (callRole === "caller") showCall("live", "On a call");
+        playStream(media, stream);
+        if (callRole === "caller") showCall("live", liveLabel());
       };
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === "failed") setBanner("The call could not connect.");
       };
       return item;
+    }
+
+    function showSelf() {
+      if (callMedia !== "video" || !localStream || localStream.getVideoTracks().length === 0) {
+        callSelf.srcObject = null;
+        callSelf.hidden = true;
+        return;
+      }
+      callSelf.srcObject = localStream;
+      callSelf.hidden = false;
+      const played = callSelf.play();
+      if (played && played.catch) played.catch(() => {});
     }
 
     async function ensureMic() {
@@ -630,30 +727,51 @@
         noiseSuppression: true,
         autoGainControl: true,
       };
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
-      } catch (e) {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const wantVideo = callMedia === "video";
+      if (wantVideo) {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio,
+            video: { facingMode: "user" },
+          });
+        } catch (e) {
+          if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+          localStream = await navigator.mediaDevices.getUserMedia({ audio, video: true });
+        }
+        if (localStream.getVideoTracks().length === 0) {
+          for (const track of localStream.getTracks()) track.stop();
+          localStream = null;
+          throw new Error("camera");
+        }
+      } else {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+        } catch (e) {
+          localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        }
       }
       rawStream = null;
       for (const track of localStream.getAudioTracks()) track.contentHint = "speech";
+      showSelf();
       return localStream;
     }
 
-    async function placeCall() {
+    async function placeCall(media) {
       if (callId || phase !== "in" || !socket || socket.readyState !== WebSocket.OPEN) return;
+      callMedia = media === "video" ? "video" : "audio";
       unlockAudio();
-      showCall("outgoing", "Calling...");
+      showCall("outgoing", callMedia === "video" ? "Calling with video..." : "Calling...");
       try {
         await ensureMic();
       } catch (e) {
+        const message = mediaDenied();
         stopCallLocal();
-        setBanner("Allow the microphone to call.");
+        setBanner(message);
         return;
       }
       callId = crypto.randomUUID();
       callRole = "caller";
-      sendCall({ type: "call", id: callId });
+      sendCall({ type: "call", id: callId, media: callMedia });
     }
 
     async function startOffers(payload) {
@@ -677,8 +795,9 @@
       if (callId && callId !== payload.id) return;
       callId = payload.id;
       callRole = "receiver";
+      callMedia = payload.media === "video" ? "video" : "audio";
       bagFor(payload.from);
-      showCall("incoming", "Incoming call");
+      showCall("incoming", callMedia === "video" ? "Incoming video call" : "Incoming call");
     }
 
     async function answerCall() {
@@ -687,13 +806,14 @@
       try {
         await ensureMic();
       } catch (e) {
+        const message = mediaDenied();
         sendCall({ type: "decline", id: callId });
         stopCallLocal();
-        setBanner("Allow the microphone to call.");
+        setBanner(message);
         return;
       }
       sendCall({ type: "answer", id: callId });
-      showCall("live", "On a call");
+      showCall("live", liveLabel());
       for (const remoteId of [...callPending.keys()]) await acceptRemote(remoteId);
     }
 

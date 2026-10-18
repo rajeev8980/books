@@ -152,6 +152,9 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "beforeinstallprompt" in body
     assert "Opening the box" not in body
     assert "Incoming call" in body
+    assert "Incoming video call" in body
+    assert 'facingMode: "user"' in body
+    assert 'lowered === "video"' in body
     assert "getUserMedia" in body
     assert "echoCancellation: true" in body
     assert "noiseSuppression: true" in body
@@ -432,7 +435,7 @@ async def _call(service: Service) -> None:
         assert ready["id"] == call_id
         assert set(ready["peers"]) == {receiver_welcome["you"], extra_welcome["you"]}
         ring = await _next_of(receiver, "ring")
-        assert ring == {"type": "ring", "id": call_id, "from": caller_welcome["you"]}
+        assert ring == {"type": "ring", "id": call_id, "from": caller_welcome["you"], "media": "audio"}
         assert await _next_of(extra, "ring") == ring
         assert call_id not in room.suggestions
         assert room.call is not None
@@ -493,6 +496,37 @@ async def _call(service: Service) -> None:
         assert ended == {"type": "ended", "id": call_id}
         assert room.call is None
         assert caller_welcome["type"] == "welcome"
+    finally:
+        await _close(caller, receiver)
+
+    caller = await websockets.connect(service.ws)
+    receiver = await websockets.connect(service.ws)
+    try:
+        caller_welcome = json.loads(await asyncio.wait_for(caller.recv(), 2))
+        receiver_welcome = json.loads(await asyncio.wait_for(receiver.recv(), 2))
+        await _drain(caller)
+        await _drain(receiver)
+        ordinary = str(uuid.uuid4())
+        await caller.send(json.dumps({"type": "text", "id": ordinary, "text": "video later"}))
+        kept = await _next_suggestion(receiver)
+        assert kept["text"] == "video later"
+        call_id = str(uuid.uuid4())
+        await caller.send(json.dumps({"type": "text", "id": call_id, "text": "Video"}))
+        ready = await _next_of(caller, "call-ready")
+        assert ready["media"] == "video"
+        assert set(ready["peers"]) == {receiver_welcome["you"]}
+        ring = await _next_of(receiver, "ring")
+        assert ring == {
+            "type": "ring",
+            "id": call_id,
+            "from": caller_welcome["you"],
+            "media": "video",
+        }
+        assert call_id not in room.suggestions
+        assert room.call is not None and room.call.media == "video"
+        await caller.send(json.dumps({"type": "hangup", "id": call_id}))
+        assert await _next_of(receiver, "ended") == {"type": "ended", "id": call_id}
+        assert room.call is None
     finally:
         await _close(caller, receiver)
 

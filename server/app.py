@@ -103,6 +103,7 @@ class Suggestion:
 class CallSession:
     id: str
     caller: str
+    media: str
     waiting: set[str]
     live: set[str]
 
@@ -155,7 +156,8 @@ class Room:
             log.info("closed client %s", client_id)
             await self.disconnect(client_id)
 
-    async def begin_call(self, caller_id: str, call_id: str) -> None:
+    async def begin_call(self, caller_id: str, call_id: str, media: str = "audio") -> None:
+        media = "video" if media == "video" else "audio"
         async with self.lock:
             if caller_id not in self.clients:
                 return
@@ -170,6 +172,7 @@ class Room:
                     self.call = CallSession(
                         id=call_id,
                         caller=caller_id,
+                        media=media,
                         waiting=set(peers),
                         live=set(),
                     )
@@ -179,9 +182,15 @@ class Room:
         if not peers:
             await ws.send_json({"type": "error", "message": NO_ONE_ELSE})
             return
-        await self.send_to(caller_id, {"type": "call-ready", "id": call_id, "peers": peers})
+        await self.send_to(
+            caller_id,
+            {"type": "call-ready", "id": call_id, "peers": peers, "media": media},
+        )
         for peer in peers:
-            await self.send_to(peer, {"type": "ring", "id": call_id, "from": caller_id})
+            await self.send_to(
+                peer,
+                {"type": "ring", "id": call_id, "from": caller_id, "media": media},
+            )
 
     async def relay_signal(self, sender_id: str, payload: dict) -> None:
         call_id = as_uuid(payload.get("id"))
@@ -561,8 +570,9 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     if suggestion_id is None:
         await websocket.send_json({"type": "error", "message": "Suggestion id must be a UUID."})
         return
-    if text.lower() == "call":
-        await room.begin_call(client_id, suggestion_id)
+    lowered = text.lower()
+    if lowered in {"call", "video"}:
+        await room.begin_call(client_id, suggestion_id, "video" if lowered == "video" else "audio")
         return
     await room.accept_text(client_id, suggestion_id, text, deadline)
 
@@ -576,7 +586,7 @@ async def handle_call_message(client_id: str, websocket: WebSocket, kind: str, p
         await websocket.send_json({"type": "error", "message": "That call could not start."})
         return
     if kind == "call":
-        await room.begin_call(client_id, call_id)
+        await room.begin_call(client_id, call_id, "video" if payload.get("media") == "video" else "audio")
     elif kind == "answer":
         await room.accept_call(client_id, call_id)
     elif kind == "decline":
