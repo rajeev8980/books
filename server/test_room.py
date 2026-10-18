@@ -153,10 +153,10 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "Opening the box" not in body
     assert "Incoming call" in body
     assert "getUserMedia" in body
-    assert "noiseSuppression: true" in body
     assert "echoCancellation: true" in body
-    assert "autoGainControl: false" in body
-    assert "whistle-cut" not in body
+    assert "noiseSuppression: true" in body
+    assert "autoGainControl: true" in body
+    assert "mic-hush" not in body
     assert "voiceIsolation" not in body
     assert "VoiceGate" not in body
     assert "localStorage" not in body
