@@ -123,7 +123,7 @@
     }
     #call[hidden] { display: none; }
     #call p { margin: 0; font-size: 15px; }
-    #call-actions { display: flex; gap: 8px; }
+    #call-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     #call button {
       border-radius: 20px;
       min-height: 40px;
@@ -131,7 +131,12 @@
       font-size: 14px;
     }
     #call-answer { border: 0; background: #fff; color: #000; }
-    #call-decline, #call-end { background: transparent; color: #fff; border: 1px solid #fff; }
+    #call-mute, #call-hide, #call-flip, #call-decline, #call-end {
+      background: transparent;
+      color: #fff;
+      border: 1px solid #fff;
+    }
+    #call-mute.on, #call-hide.on { background: #fff; color: #000; }
     #call-stage, #call-self { display: none; }
     #call.video {
       position: relative;
@@ -175,6 +180,8 @@
       background: #111;
       transform: scaleX(-1);
     }
+    #call.video #call-self.back { transform: none; }
+    #call.video #call-self.off { opacity: 0.35; }
     #call.video #call-label,
     #call.video #call-actions {
       position: absolute;
@@ -183,7 +190,7 @@
       z-index: 3;
     }
     #call.video #call-label {
-      bottom: 64px;
+      bottom: 100px;
       text-align: center;
       text-shadow: 0 1px 4px #000;
     }
@@ -315,6 +322,9 @@
     <video id="call-self" playsinline autoplay muted hidden></video>
     <p id="call-label"></p>
     <div id="call-actions">
+      <button id="call-mute" type="button" hidden>Mute</button>
+      <button id="call-hide" type="button" hidden>Hide</button>
+      <button id="call-flip" type="button" hidden>Flip</button>
       <button id="call-answer" type="button">Answer</button>
       <button id="call-decline" type="button">Decline</button>
       <button id="call-end" type="button">End</button>
@@ -352,6 +362,9 @@
     const composer = document.getElementById("composer");
     const callEl = document.getElementById("call");
     const callLabel = document.getElementById("call-label");
+    const callMute = document.getElementById("call-mute");
+    const callHide = document.getElementById("call-hide");
+    const callFlip = document.getElementById("call-flip");
     const callAnswer = document.getElementById("call-answer");
     const callDecline = document.getElementById("call-decline");
     const callEnd = document.getElementById("call-end");
@@ -363,6 +376,8 @@
     let callId = null;
     let callRole = "";
     let callMedia = "audio";
+    let cameraFacing = "user";
+    let flipping = false;
     let rawStream = null;
     let localStream = null;
     let audioCtx = null;
@@ -616,12 +631,16 @@
     }
 
     function showCall(mode, label) {
+      const talking = mode !== "incoming";
       callEl.hidden = false;
       callEl.classList.toggle("video", callMedia === "video");
       callLabel.textContent = label;
+      callMute.hidden = !talking;
+      callHide.hidden = !talking || callMedia !== "video";
+      callFlip.hidden = !talking || callMedia !== "video";
       callAnswer.hidden = mode !== "incoming";
       callDecline.hidden = mode !== "incoming";
-      callEnd.hidden = mode === "incoming";
+      callEnd.hidden = !talking;
     }
 
     function stopCallLocal() {
@@ -640,10 +659,19 @@
       callId = null;
       callRole = "";
       callMedia = "audio";
+      cameraFacing = "user";
       callStage.replaceChildren();
       callStage.classList.remove("many");
       callSelf.srcObject = null;
       callSelf.hidden = true;
+      callSelf.classList.remove("back", "off");
+      callMute.hidden = true;
+      callMute.textContent = "Mute";
+      callMute.classList.remove("on");
+      callHide.hidden = true;
+      callHide.textContent = "Hide";
+      callHide.classList.remove("on");
+      callFlip.hidden = true;
       callLabel.textContent = "";
       callEl.classList.remove("video");
       callEl.hidden = true;
@@ -721,8 +749,71 @@
       }
       callSelf.srcObject = localStream;
       callSelf.hidden = false;
+      const track = localStream.getVideoTracks()[0];
+      callSelf.classList.toggle("back", cameraFacing === "environment");
+      callSelf.classList.toggle("off", !track || !track.enabled);
       const played = callSelf.play();
       if (played && played.catch) played.catch(() => {});
+    }
+
+    function toggleMute() {
+      const track = localStream && localStream.getAudioTracks()[0];
+      if (!track) return;
+      track.enabled = !track.enabled;
+      const muted = !track.enabled;
+      callMute.textContent = muted ? "Unmute" : "Mute";
+      callMute.classList.toggle("on", muted);
+    }
+
+    function toggleVideo() {
+      const track = localStream && localStream.getVideoTracks()[0];
+      if (!track) return;
+      track.enabled = !track.enabled;
+      const hidden = !track.enabled;
+      callHide.textContent = hidden ? "Show" : "Hide";
+      callHide.classList.toggle("on", hidden);
+      showSelf();
+    }
+
+    async function flipCamera() {
+      if (flipping || callMedia !== "video" || !localStream) return;
+      const current = localStream.getVideoTracks()[0];
+      if (!current) return;
+      flipping = true;
+      const nextFacing = cameraFacing === "user" ? "environment" : "user";
+      let stream = null;
+      try {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: { exact: nextFacing } },
+          });
+        } catch (e) {
+          if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { facingMode: nextFacing },
+          });
+        }
+        const track = stream.getVideoTracks()[0];
+        if (!track) throw new Error("camera");
+        track.enabled = current.enabled;
+        localStream.removeTrack(current);
+        current.stop();
+        localStream.addTrack(track);
+        for (const item of callPeers.values()) {
+          const sender = item.pc.getSenders().find((entry) => entry.track && entry.track.kind === "video");
+          if (sender) await sender.replaceTrack(track);
+        }
+        cameraFacing = nextFacing;
+        showSelf();
+      } catch (e) {
+        if (stream) {
+          for (const track of stream.getTracks()) track.stop();
+        }
+        setBanner("Couldn't switch the camera.");
+      }
+      flipping = false;
     }
 
     async function ensureMic() {
@@ -735,9 +826,10 @@
       const wantVideo = callMedia === "video";
       if (wantVideo) {
         try {
+          cameraFacing = "user";
           localStream = await navigator.mediaDevices.getUserMedia({
             audio,
-            video: { facingMode: "user" },
+            video: { facingMode: cameraFacing },
           });
         } catch (e) {
           if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
@@ -894,6 +986,9 @@
       stopCallLocal();
     }
 
+    callMute.addEventListener("click", () => { toggleMute(); });
+    callHide.addEventListener("click", () => { toggleVideo(); });
+    callFlip.addEventListener("click", () => { flipCamera(); });
     callAnswer.addEventListener("click", () => { answerCall(); });
     callDecline.addEventListener("click", () => { declineCall(); });
     callEnd.addEventListener("click", () => { endCall(); });

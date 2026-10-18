@@ -153,7 +153,11 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "Opening the box" not in body
     assert "Incoming call" in body
     assert "Incoming video call" in body
-    assert 'facingMode: "user"' in body
+    assert 'id="call-mute"' in body
+    assert 'id="call-hide"' in body
+    assert 'id="call-flip"' in body
+    assert 'cameraFacing = "user"' in body
+    assert "facingMode: { exact: nextFacing }" in body
     assert 'word === "video"' in body
     assert 'word === "call"' in body
     assert "getUserMedia" in body
