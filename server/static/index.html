@@ -628,13 +628,16 @@
       const audio = {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        autoGainControl: false,
         channelCount: 1,
       };
       try {
         localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
       } catch (e) {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, channelCount: 1 },
+          video: false,
+        });
       }
       rawStream = null;
       for (const track of localStream.getAudioTracks()) track.contentHint = "speech";
