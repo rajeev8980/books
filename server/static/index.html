@@ -383,6 +383,11 @@
       return (draftEl.innerText || "").replace(/\u00a0/g, " ").replace(/\n/g, " ").trim();
     }
 
+    function callWord(text) {
+      const word = text.replace(/[\u200b\u200c\u200d\ufeff]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+      return word === "call" || word === "video" ? word : "";
+    }
+
     function refreshSend() {
       const open = phase === "in";
       sendEl.disabled = !open || draftValue() === "";
@@ -581,9 +586,9 @@
       draftEl.textContent = "";
       refreshSend();
       setBanner("");
-      const lowered = text.toLowerCase();
-      if (lowered === "call" || lowered === "video") {
-        placeCall(lowered === "video" ? "video" : "audio");
+      const word = callWord(text);
+      if (word) {
+        placeCall(word === "video" ? "video" : "audio");
         keepKeyboard();
         return;
       }

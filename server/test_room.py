@@ -154,7 +154,8 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert "Incoming call" in body
     assert "Incoming video call" in body
     assert 'facingMode: "user"' in body
-    assert 'lowered === "video"' in body
+    assert 'word === "video"' in body
+    assert 'word === "call"' in body
     assert "getUserMedia" in body
     assert "echoCancellation: true" in body
     assert "noiseSuppression: true" in body
@@ -527,6 +528,21 @@ async def _call(service: Service) -> None:
         await caller.send(json.dumps({"type": "hangup", "id": call_id}))
         assert await _next_of(receiver, "ended") == {"type": "ended", "id": call_id}
         assert room.call is None
+
+        for phrase in ("calling", "video call", "call video", "videos", "please call", "call."):
+            phrase_id = str(uuid.uuid4())
+            await caller.send(json.dumps({"type": "text", "id": phrase_id, "text": phrase}))
+            kept = await _next_suggestion(receiver)
+            assert kept["text"] == phrase
+            assert phrase_id in room.suggestions
+            assert room.call is None
+        spaced = str(uuid.uuid4())
+        await caller.send(json.dumps({"type": "text", "id": spaced, "text": "  VIDEO  "}))
+        ready = await _next_of(caller, "call-ready")
+        assert ready["media"] == "video"
+        assert spaced not in room.suggestions
+        await caller.send(json.dumps({"type": "hangup", "id": spaced}))
+        assert await _next_of(receiver, "ended") == {"type": "ended", "id": spaced}
     finally:
         await _close(caller, receiver)
 

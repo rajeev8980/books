@@ -52,6 +52,15 @@ MAX_SDP = 65536
 MAX_CANDIDATE = 4096
 
 
+def call_word(text: str) -> str | None:
+    """Return call or video only when that is the entire message."""
+    word = "".join(ch for ch in text if ch not in "\u200b\u200c\u200d\ufeff")
+    word = " ".join(word.split()).lower()
+    if word in {"call", "video"}:
+        return word
+    return None
+
+
 def prepare_upload_dir(path: Path) -> None:
     """Create the upload directory and delete anything already in it."""
     path.mkdir(parents=True, exist_ok=True)
@@ -570,9 +579,9 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     if suggestion_id is None:
         await websocket.send_json({"type": "error", "message": "Suggestion id must be a UUID."})
         return
-    lowered = text.lower()
-    if lowered in {"call", "video"}:
-        await room.begin_call(client_id, suggestion_id, "video" if lowered == "video" else "audio")
+    word = call_word(text)
+    if word:
+        await room.begin_call(client_id, suggestion_id, "video" if word == "video" else "audio")
         return
     await room.accept_text(client_id, suggestion_id, text, deadline)
 
