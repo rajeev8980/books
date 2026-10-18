@@ -157,6 +157,8 @@ def test_page_is_fresh_html(service: Service) -> None:
     assert 'id="call-hide"' in body
     assert 'id="call-flip"' in body
     assert 'cameraFacing = "user"' in body
+    assert "current.stop()" in body
+    assert "enumerateDevices" in body
     assert "facingMode: { exact: nextFacing }" in body
     assert 'word === "video"' in body
     assert 'word === "call"' in body

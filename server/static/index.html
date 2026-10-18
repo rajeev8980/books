@@ -775,42 +775,129 @@
       showSelf();
     }
 
+    function videoSender(pc) {
+      const live = pc.getSenders().find((entry) => entry.track && entry.track.kind === "video");
+      if (live) return live;
+      if (typeof pc.getTransceivers !== "function") return null;
+      const transceiver = pc.getTransceivers().find((entry) => entry.receiver && entry.receiver.track && entry.receiver.track.kind === "video");
+      return transceiver ? transceiver.sender : null;
+    }
+
+    async function useVideoTrack(track) {
+      const existing = localStream.getVideoTracks()[0];
+      if (existing && existing !== track) {
+        localStream.removeTrack(existing);
+        existing.stop();
+      }
+      if (localStream.getVideoTracks().indexOf(track) === -1) localStream.addTrack(track);
+      for (const item of callPeers.values()) {
+        const sender = videoSender(item.pc);
+        if (sender) await sender.replaceTrack(track);
+      }
+    }
+
+    async function openCamera(video) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video });
+      const track = stream.getVideoTracks()[0];
+      if (!track) throw new Error("camera");
+      for (const extra of stream.getTracks()) {
+        if (extra !== track) extra.stop();
+      }
+      return track;
+    }
+
+    async function openOtherCamera(previousId, nextFacing) {
+      let devices = [];
+      try { devices = await navigator.mediaDevices.enumerateDevices(); } catch (e) {}
+      const cameras = devices.filter((device) => device.kind === "videoinput" && device.deviceId && device.deviceId !== previousId);
+      const label = nextFacing === "environment" ? /back|rear|environment/i : /front|user|face/i;
+      const ordered = [];
+      const named = cameras.find((device) => label.test(device.label || ""));
+      if (named) ordered.push(named);
+      for (const camera of cameras) {
+        if (ordered.indexOf(camera) === -1) ordered.push(camera);
+      }
+      const attempts = [];
+      for (const camera of ordered) {
+        attempts.push({ deviceId: { exact: camera.deviceId } });
+        attempts.push({ deviceId: { ideal: camera.deviceId } });
+      }
+      attempts.push({ facingMode: { exact: nextFacing } });
+      attempts.push({ facingMode: { ideal: nextFacing } });
+      attempts.push({ facingMode: nextFacing });
+      for (let round = 0; round < 2; round++) {
+        for (const video of attempts) {
+          let track = null;
+          try {
+            track = await openCamera(video);
+          } catch (e) {
+            if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+            continue;
+          }
+          const got = typeof track.getSettings === "function" ? track.getSettings() : {};
+          const facing = got.facingMode || "";
+          const id = got.deviceId || "";
+          if ((facing && facing === nextFacing) || (id && previousId && id !== previousId)) return track;
+          track.stop();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      return null;
+    }
+
+    async function restoreVideoTrack(deviceId, facing, enabled) {
+      const attempts = [];
+      if (deviceId) attempts.push({ deviceId: { exact: deviceId } });
+      if (facing) attempts.push({ facingMode: facing });
+      attempts.push(true);
+      for (const video of attempts) {
+        try {
+          const track = await openCamera(video);
+          track.enabled = enabled;
+          await useVideoTrack(track);
+          showSelf();
+          return;
+        } catch (e) {}
+      }
+    }
+
     async function flipCamera() {
       if (flipping || callMedia !== "video" || !localStream) return;
       const current = localStream.getVideoTracks()[0];
       if (!current) return;
       flipping = true;
-      const nextFacing = cameraFacing === "user" ? "environment" : "user";
-      let stream = null;
+      const settings = typeof current.getSettings === "function" ? current.getSettings() : {};
+      const previousFacing = settings.facingMode || cameraFacing || "user";
+      const previousId = settings.deviceId || "";
+      const nextFacing = previousFacing === "environment" ? "user" : "environment";
+      const wasEnabled = current.enabled;
       try {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: { facingMode: { exact: nextFacing } },
-          });
-        } catch (e) {
-          if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: { facingMode: nextFacing },
-          });
+        if (typeof current.applyConstraints === "function") {
+          try {
+            await current.applyConstraints({ facingMode: nextFacing });
+            const now = current.getSettings ? current.getSettings().facingMode : "";
+            if (now && now !== previousFacing) {
+              cameraFacing = now;
+              setBanner("");
+              showSelf();
+              flipping = false;
+              return;
+            }
+          } catch (e) {}
         }
-        const track = stream.getVideoTracks()[0];
-        if (!track) throw new Error("camera");
-        track.enabled = current.enabled;
-        localStream.removeTrack(current);
         current.stop();
-        localStream.addTrack(track);
-        for (const item of callPeers.values()) {
-          const sender = item.pc.getSenders().find((entry) => entry.track && entry.track.kind === "video");
-          if (sender) await sender.replaceTrack(track);
-        }
-        cameraFacing = nextFacing;
+        localStream.removeTrack(current);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const track = await openOtherCamera(previousId, nextFacing);
+        if (!track) throw new Error("camera");
+        track.enabled = wasEnabled;
+        await useVideoTrack(track);
+        const facing = typeof track.getSettings === "function" ? track.getSettings().facingMode : "";
+        cameraFacing = facing === "user" || facing === "environment" ? facing : nextFacing;
+        setBanner("");
         showSelf();
       } catch (e) {
-        if (stream) {
-          for (const track of stream.getTracks()) track.stop();
-        }
+        await restoreVideoTrack(previousId, previousFacing, wasEnabled);
         setBanner("Couldn't switch the camera.");
       }
       flipping = false;
