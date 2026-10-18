@@ -305,7 +305,6 @@
     let rawStream = null;
     let localStream = null;
     let audioCtx = null;
-    let gateReady = null;
 
     const shown = new Map();
     let socket = null;
@@ -580,116 +579,19 @@
       return bag;
     }
 
-    function voiceSdp(description) {
-      if (!description || typeof description.sdp !== "string") return description;
-      const map = description.sdp.match(/a=rtpmap:(\d+) opus\/48000(?:\/\d+)?/i);
-      if (!map) return description;
-      const pt = map[1];
-      const line = new RegExp("a=fmtp:" + pt + " ([^\\r\\n]*)");
-      let sdp = description.sdp;
-      if (line.test(sdp)) {
-        sdp = sdp.replace(line, (_, params) => {
-          const keep = params.split(";").map((part) => part.trim()).filter((part) => part && !/^useinbandfec=/.test(part) && !/^usedtx=/.test(part));
-          keep.push("useinbandfec=1", "usedtx=1");
-          return "a=fmtp:" + pt + " " + keep.join(";");
-        });
-      } else {
-        sdp = sdp.replace(
-          new RegExp("(a=rtpmap:" + pt + " opus\\/48000(?:\\/\\d+)?)(\\r?\\n)"),
-          (_, rtp, nl) => rtp + nl + "a=fmtp:" + pt + " minptime=10;useinbandfec=1;usedtx=1" + nl
-        );
-      }
-      return { type: description.type, sdp };
-    }
-
     function sendVoice(to, description) {
-      const shaped = voiceSdp(description);
       sendCall({
         type: "signal",
         id: callId,
         to,
-        description: { type: shaped.type, sdp: shaped.sdp },
+        description: { type: description.type, sdp: description.sdp },
       });
     }
 
-    function loadGate() {
-      if (gateReady) return gateReady;
-      unlockAudio();
-      if (!audioCtx || !audioCtx.audioWorklet) return Promise.reject(new Error("no worklet"));
-      const code = [
-        "class VoiceGate extends AudioWorkletProcessor {",
-        "  constructor() { super(); this.floor = 0.008; this.gain = 0; this.hang = 0; }",
-        "  process(inputs, outputs) {",
-        "    const input = inputs[0] && inputs[0][0];",
-        "    const output = outputs[0] && outputs[0][0];",
-        "    if (!input || !output) return true;",
-        "    let sum = 0;",
-        "    for (let i = 0; i < input.length; i++) sum += input[i] * input[i];",
-        "    const rms = Math.sqrt(sum / input.length);",
-        "    if (rms < this.floor) this.floor = this.floor * 0.97 + rms * 0.03;",
-        "    else this.floor = this.floor * 0.999 + rms * 0.001;",
-        "    if (this.floor < 0.0025) this.floor = 0.0025;",
-        "    const open = rms > this.floor * 2.6;",
-        "    if (open) this.hang = 20;",
-        "    else if (this.hang > 0) this.hang -= 1;",
-        "    const target = (open || this.hang > 0) ? 1 : 0.012;",
-        "    const speed = target > this.gain ? 0.4 : 0.05;",
-        "    this.gain += (target - this.gain) * speed;",
-        "    for (let i = 0; i < input.length; i++) output[i] = input[i] * this.gain;",
-        "    return true;",
-        "  }",
-        "}",
-        "registerProcessor('voice-gate', VoiceGate);",
-      ].join("\n");
-      const url = URL.createObjectURL(new Blob([code], { type: "application/javascript" }));
-      gateReady = audioCtx.audioWorklet.addModule(url).finally(() => URL.revokeObjectURL(url));
-      return gateReady;
-    }
-
-    async function shapeVoice(stream, playback) {
-      unlockAudio();
-      if (!audioCtx) return stream;
-      if (audioCtx.state === "suspended") await audioCtx.resume();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const rumble = audioCtx.createBiquadFilter();
-      rumble.type = "highpass";
-      rumble.frequency.value = playback ? 100 : 130;
-      rumble.Q.value = 0.7;
-      const voice = audioCtx.createBiquadFilter();
-      voice.type = "highpass";
-      voice.frequency.value = playback ? 140 : 180;
-      voice.Q.value = 0.7;
-      const tin = audioCtx.createBiquadFilter();
-      tin.type = "lowpass";
-      tin.frequency.value = playback ? 5600 : 4200;
-      tin.Q.value = 0.7;
-      const tin2 = audioCtx.createBiquadFilter();
-      tin2.type = "lowpass";
-      tin2.frequency.value = playback ? 6800 : 5200;
-      tin2.Q.value = 0.7;
-      source.connect(rumble);
-      rumble.connect(voice);
-      voice.connect(tin);
-      tin.connect(tin2);
-      let tail = tin2;
-      try {
-        await loadGate();
-        const gate = new AudioWorkletNode(audioCtx, "voice-gate");
-        tin2.connect(gate);
-        tail = gate;
-      } catch (e) {}
-      const dest = audioCtx.createMediaStreamDestination();
-      tail.connect(dest);
-      const track = dest.stream.getAudioTracks()[0];
-      if (track) track.contentHint = "speech";
-      return dest.stream;
-    }
-
-    async function playStream(audio, stream) {
-      let shaped = stream;
-      try { shaped = await shapeVoice(stream, true); } catch (e) {}
-      audio.srcObject = shaped;
-      audio.play().catch(() => {});
+    function playStream(audio, stream) {
+      audio.srcObject = stream;
+      const played = audio.play();
+      if (played && played.catch) played.catch(() => {});
     }
 
     function makePeer(remoteId) {
@@ -723,28 +625,19 @@
 
     async function ensureMic() {
       if (localStream) return localStream;
-      const full = {
-        echoCancellation: { ideal: true },
-        noiseSuppression: { ideal: true },
-        autoGainControl: { ideal: true },
-        voiceIsolation: { ideal: true },
-        channelCount: { ideal: 1 },
-        sampleRate: { ideal: 48000 },
+      const audio = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
       };
       try {
-        rawStream = await navigator.mediaDevices.getUserMedia({ audio: full, video: false });
+        localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
       } catch (e) {
-        rawStream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          video: false,
-        });
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       }
-      for (const track of rawStream.getAudioTracks()) track.contentHint = "speech";
-      try {
-        localStream = await shapeVoice(rawStream, false);
-      } catch (e) {
-        localStream = rawStream;
-      }
+      rawStream = null;
+      for (const track of localStream.getAudioTracks()) track.contentHint = "speech";
       return localStream;
     }
 
