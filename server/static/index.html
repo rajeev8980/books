@@ -195,7 +195,8 @@
       text-shadow: 0 1px 4px #000;
     }
     #call.video #call-actions { bottom: 12px; justify-content: center; }
-    #composer { display: flex; align-items: center; gap: 8px; flex: none; }
+    #composer { display: flex; align-items: center; gap: 6px; flex: none; }
+    #tools { display: flex; align-items: center; gap: 0; flex: none; }
     #pick, #snap, #send {
       border: 0;
       background: transparent;
@@ -206,6 +207,7 @@
       place-items: center;
       padding: 0;
     }
+    #pick, #snap { width: 32px; }
     #pick:disabled, #snap:disabled, #send:disabled { color: #9a9a9a; }
     #snap-view {
       position: fixed;
@@ -384,6 +386,7 @@
     </div>
   </div>
   <form id="composer" autocomplete="off">
+    <div id="tools">
     <button id="snap" type="button" aria-label="Take a photo" disabled>
       <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
         <path fill="currentColor" d="M9 3 7.17 5H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2h-3.17L15 3H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-2.2a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z"/>
@@ -394,6 +397,7 @@
         <path fill="currentColor" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
       </svg>
     </button>
+    </div>
     <input id="file" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden>
     <div id="draft" contenteditable="false" role="textbox" spellcheck="false" enterkeyhint="send" aria-label="Type your suggestion..."></div>
     <button id="send" type="submit" aria-label="Send" disabled>
@@ -1277,15 +1281,59 @@
       }
     }
 
+    function attachSnap(track, facing) {
+      const previous = snapStream;
+      const stream = new MediaStream([track]);
+      snapStream = stream;
+      snapFacing = facing;
+      snapVideo.srcObject = stream;
+      snapVideo.classList.toggle("mirror", facing !== "environment");
+      const played = snapVideo.play();
+      if (played && played.catch) played.catch(() => {});
+      if (previous) {
+        for (const old of previous.getTracks()) {
+          if (old !== track) old.stop();
+        }
+      }
+    }
+
     async function flipSnap() {
       if (!snapStream || snapBusy) return;
+      const current = snapStream.getVideoTracks()[0];
+      if (!current) return;
       snapBusy = true;
-      const next = snapFacing === "environment" ? "user" : "environment";
+      const settings = typeof current.getSettings === "function" ? current.getSettings() : {};
+      const previousFacing = settings.facingMode || snapFacing || "user";
+      const previousId = settings.deviceId || "";
+      const nextFacing = previousFacing === "environment" ? "user" : "environment";
       try {
-        await openSnapFacing(next);
-        snapFacing = next;
+        if (typeof current.applyConstraints === "function") {
+          try {
+            await current.applyConstraints({ facingMode: nextFacing });
+            const now = current.getSettings ? current.getSettings().facingMode : "";
+            if (now && now !== previousFacing) {
+              snapFacing = now;
+              snapVideo.classList.toggle("mirror", now !== "environment");
+              setBanner("");
+              snapBusy = false;
+              return;
+            }
+          } catch (e) {}
+        }
+        current.stop();
+        snapVideo.srcObject = null;
+        snapStream = null;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const track = await openOtherCamera(previousId, nextFacing);
+        if (!track) throw new Error("camera");
+        const facing = typeof track.getSettings === "function" ? track.getSettings().facingMode : "";
+        attachSnap(track, facing === "user" || facing === "environment" ? facing : nextFacing);
         setBanner("");
       } catch (e) {
+        try {
+          const track = await openCamera(previousId ? { deviceId: { exact: previousId } } : { facingMode: previousFacing });
+          attachSnap(track, previousFacing === "environment" ? "environment" : "user");
+        } catch (err) {}
         setBanner("Couldn't switch the camera.");
       }
       snapBusy = false;
