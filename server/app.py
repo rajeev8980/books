@@ -53,13 +53,22 @@ MAX_SDP = 65536
 MAX_CANDIDATE = 4096
 
 
+def plain_word(text: str) -> str:
+    word = "".join(ch for ch in text if ch not in "\u200b\u200c\u200d\ufeff")
+    return " ".join(word.split())
+
+
 def call_word(text: str) -> str | None:
     """Return call or video only when that is the entire message."""
-    word = "".join(ch for ch in text if ch not in "\u200b\u200c\u200d\ufeff")
-    word = " ".join(word.split()).lower()
+    word = plain_word(text).lower()
     if word in {"call", "video"}:
         return word
     return None
+
+
+def is_hug(text: str) -> bool:
+    """True when the whole message asks for the hug clip."""
+    return plain_word(text).upper() == "HUG+"
 
 
 def prepare_upload_dir(path: Path) -> None:
@@ -591,7 +600,7 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     if word:
         await room.begin_call(client_id, suggestion_id, "video" if word == "video" else "audio")
         return
-    if text == "HUG+":
+    if is_hug(text):
         await room.broadcast({"type": "hug", "id": suggestion_id, "from": client_id}, exclude=client_id)
         return
     await room.accept_text(client_id, suggestion_id, text, deadline)

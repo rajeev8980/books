@@ -626,6 +626,10 @@ async def _hug(service: Service) -> None:
         assert page.status_code == 200
         assert page.headers["content-type"].startswith("video/mp4")
         assert page.content[4:8] == b"ftyp"
+        lower = str(uuid.uuid4())
+        await sender.send(json.dumps({"type": "text", "id": lower, "text": "hug+"}))
+        heard_lower = await _next_of(other, "hug")
+        assert heard_lower["id"] == lower
     finally:
         await _close(sender, other)
 

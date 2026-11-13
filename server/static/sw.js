@@ -42,7 +42,8 @@ self.addEventListener("fetch", (event) => {
   if (
     url.pathname.startsWith("/media") ||
     url.pathname.startsWith("/app/") ||
-    url.pathname === "/health"
+    url.pathname === "/health" ||
+    url.pathname === "/hug.mp4"
   ) {
     return;
   }

@@ -60,13 +60,13 @@
       overscroll-behavior: contain;
     }
     #hug {
-      position: absolute;
-      inset: 0;
-      z-index: 2;
+      position: fixed;
+      z-index: 8;
       display: flex;
       align-items: center;
       justify-content: center;
       background: #000;
+      pointer-events: none;
     }
     #hug[hidden] { display: none; }
     #hug video {
@@ -376,10 +376,9 @@
       <button type="button" data-key="back" aria-label="Delete">⌫</button>
     </div>
   </div>
-  <div id="notes">
-    <div id="hug" hidden>
-      <video id="hug-video" playsinline></video>
-    </div>
+  <div id="notes"></div>
+  <div id="hug" hidden>
+    <video id="hug-video" playsinline webkit-playsinline></video>
   </div>
   <p id="banner" hidden></p>
   <div id="call" hidden>
@@ -489,9 +488,17 @@
       return (draftEl.innerText || "").replace(/\u00a0/g, " ").replace(/\n/g, " ").trim();
     }
 
+    function plainWord(text) {
+      return text.replace(/[\u200b\u200c\u200d\ufeff]/g, "").replace(/\s+/g, " ").trim();
+    }
+
     function callWord(text) {
-      const word = text.replace(/[\u200b\u200c\u200d\ufeff]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+      const word = plainWord(text).toLowerCase();
       return word === "call" || word === "video" ? word : "";
+    }
+
+    function isHug(text) {
+      return plainWord(text).toUpperCase() === "HUG+";
     }
 
     function refreshSend() {
@@ -707,9 +714,9 @@
         keepKeyboard();
         return;
       }
-      if (text === "HUG+") {
+      if (isHug(text)) {
         playHug();
-        socket.send(JSON.stringify({ type: "text", id: crypto.randomUUID(), text }));
+        socket.send(JSON.stringify({ type: "text", id: crypto.randomUUID(), text: "HUG+" }));
         keepKeyboard();
         return;
       }
@@ -719,36 +726,66 @@
       keepKeyboard();
     }
 
-    let hugStopping = false;
+    let hugGen = 0;
+
+    function placeHug() {
+      const box = notesEl.getBoundingClientRect();
+      const composer = document.getElementById("composer").getBoundingClientRect();
+      const top = box.height >= 48 ? box.top : 0;
+      const height = box.height >= 48 ? box.height : Math.max(120, composer.top - top);
+      const left = box.height >= 48 ? box.left : 0;
+      const width = box.height >= 48 ? box.width : window.innerWidth;
+      hugEl.style.top = Math.round(top) + "px";
+      hugEl.style.left = Math.round(left) + "px";
+      hugEl.style.width = Math.round(width) + "px";
+      hugEl.style.height = Math.round(height) + "px";
+    }
 
     function stopHug() {
-      if (hugStopping) return;
-      hugStopping = true;
+      hugGen += 1;
       hugEl.hidden = true;
       hugVideo.pause();
       hugVideo.removeAttribute("src");
       hugVideo.load();
-      hugStopping = false;
     }
 
     function playHug() {
+      const gen = ++hugGen;
+      placeHug();
       hugEl.hidden = false;
-      hugVideo.muted = false;
+      hugVideo.muted = true;
       hugVideo.src = "/hug.mp4";
-      try { hugVideo.currentTime = 0; } catch (e) {}
-      const played = hugVideo.play();
-      if (played && played.catch) {
-        played.catch(() => {
+      const begin = () => {
+        if (gen !== hugGen || hugEl.hidden) return;
+        const played = hugVideo.play();
+        if (!played || !played.then) return;
+        played.then(() => {
+          if (gen !== hugGen) return;
+          hugVideo.muted = false;
+        }).catch(() => {
+          if (gen !== hugGen) return;
           hugVideo.muted = true;
           const retry = hugVideo.play();
-          if (retry && retry.catch) retry.catch(() => stopHug());
+          if (retry && retry.catch) {
+            retry.catch(() => {
+              if (gen === hugGen) stopHug();
+            });
+          }
         });
-      }
+      };
+      if (hugVideo.readyState >= 2) begin();
+      else hugVideo.addEventListener("canplay", begin, { once: true });
     }
 
-    hugVideo.addEventListener("ended", () => stopHug());
-    hugVideo.addEventListener("error", () => {
+    hugVideo.addEventListener("ended", () => {
       if (!hugEl.hidden) stopHug();
+    });
+    hugVideo.addEventListener("error", () => {
+      if (hugEl.hidden || !hugVideo.getAttribute("src")) return;
+      stopHug();
+    });
+    window.addEventListener("resize", () => {
+      if (!hugEl.hidden) placeHug();
     });
 
     function unlockAudio() {
