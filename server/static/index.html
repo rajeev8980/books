@@ -109,6 +109,92 @@
     }
     #install.show { display: block; }
     #status { color: #9a9a9a; font-size: 12px; padding: 10px 0; }
+    #call {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 8px;
+      padding: 12px 14px;
+      border: 1px solid #2a2a2a;
+      border-radius: 16px;
+      background: #000;
+      flex: none;
+    }
+    #call[hidden] { display: none; }
+    #call p { margin: 0; font-size: 15px; }
+    #call-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    #call button {
+      border-radius: 20px;
+      min-height: 40px;
+      padding: 0 14px;
+      font-size: 14px;
+    }
+    #call-answer { border: 0; background: #fff; color: #000; }
+    #call-mute, #call-hide, #call-flip, #call-decline, #call-end {
+      background: transparent;
+      color: #fff;
+      border: 1px solid #fff;
+    }
+    #call-mute.on, #call-hide.on { background: #fff; color: #000; }
+    #call-stage, #call-self { display: none; }
+    #call.video {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      display: block;
+      margin: 0 0 8px;
+      padding: 0;
+      overflow: hidden;
+      border: 0;
+    }
+    body:has(#call.video) #notes { display: none; }
+    #call.video #call-stage {
+      display: grid;
+      position: absolute;
+      inset: 0;
+      gap: 4px;
+      background: #000;
+    }
+    #call.video #call-stage.many {
+      grid-template-columns: 1fr 1fr;
+      grid-auto-rows: 1fr;
+    }
+    #call.video #call-stage video {
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      object-fit: cover;
+      background: #111;
+    }
+    #call.video #call-self {
+      display: block;
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 2;
+      width: 96px;
+      height: 140px;
+      object-fit: cover;
+      border-radius: 12px;
+      background: #111;
+      transform: scaleX(-1);
+    }
+    #call.video #call-self.back { transform: none; }
+    #call.video #call-self.off { opacity: 0.35; }
+    #call.video #call-label,
+    #call.video #call-actions {
+      position: absolute;
+      left: 12px;
+      right: 12px;
+      z-index: 3;
+    }
+    #call.video #call-label {
+      bottom: 100px;
+      text-align: center;
+      text-shadow: 0 1px 4px #000;
+    }
+    #call.video #call-actions { bottom: 12px; justify-content: center; }
     #composer { display: flex; align-items: center; gap: 8px; flex: none; }
     #pick, #send {
       border: 0;
@@ -231,6 +317,19 @@
   </div>
   <div id="notes"></div>
   <p id="banner" hidden></p>
+  <div id="call" hidden>
+    <div id="call-stage"></div>
+    <video id="call-self" playsinline autoplay muted hidden></video>
+    <p id="call-label"></p>
+    <div id="call-actions">
+      <button id="call-mute" type="button" hidden>Mute</button>
+      <button id="call-hide" type="button" hidden>Hide</button>
+      <button id="call-flip" type="button" hidden>Flip</button>
+      <button id="call-answer" type="button">Answer</button>
+      <button id="call-decline" type="button">Decline</button>
+      <button id="call-end" type="button">End</button>
+    </div>
+  </div>
   <button id="retry" type="button">Try again</button>
   <button id="install" type="button">Install app</button>
   <div id="status"></div>
@@ -261,6 +360,27 @@
     const draftEl = document.getElementById("draft");
     const sendEl = document.getElementById("send");
     const composer = document.getElementById("composer");
+    const callEl = document.getElementById("call");
+    const callLabel = document.getElementById("call-label");
+    const callMute = document.getElementById("call-mute");
+    const callHide = document.getElementById("call-hide");
+    const callFlip = document.getElementById("call-flip");
+    const callAnswer = document.getElementById("call-answer");
+    const callDecline = document.getElementById("call-decline");
+    const callEnd = document.getElementById("call-end");
+    const callStage = document.getElementById("call-stage");
+    const callSelf = document.getElementById("call-self");
+    const iceServers = [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }];
+    const callPeers = new Map();
+    const callPending = new Map();
+    let callId = null;
+    let callRole = "";
+    let callMedia = "audio";
+    let cameraFacing = "user";
+    let flipping = false;
+    let rawStream = null;
+    let localStream = null;
+    let audioCtx = null;
 
     const shown = new Map();
     let socket = null;
@@ -276,6 +396,11 @@
 
     function draftValue() {
       return (draftEl.innerText || "").replace(/\u00a0/g, " ").replace(/\n/g, " ").trim();
+    }
+
+    function callWord(text) {
+      const word = text.replace(/[\u200b\u200c\u200d\ufeff]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+      return word === "call" || word === "video" ? word : "";
     }
 
     function refreshSend() {
@@ -384,7 +509,23 @@
           el.appendChild(p);
           notesEl.appendChild(el);
         } else if (payload.type === "error") {
+          if (callRole === "caller" && callPeers.size === 0 &&
+              (payload.message === "No one else is here." || payload.message === "A call is already on.")) {
+            stopCallLocal();
+          }
           setBanner(payload.message || "Couldn't share that one.");
+        } else if (payload.type === "call-ready") {
+          startOffers(payload);
+        } else if (payload.type === "ring") {
+          onRing(payload);
+        } else if (payload.type === "signal") {
+          onSignal(payload);
+        } else if (payload.type === "answered") {
+          if (callId && payload.id === callId && callRole === "caller") showCall("live", liveLabel());
+        } else if (payload.type === "mesh") {
+          offerToOthers(payload);
+        } else if (payload.type === "ended") {
+          if (callId && payload.id === callId) stopCallLocal();
         } else if (payload.type === "suggestion") {
           if (payload.sender === you || shown.has(payload.id)) return;
           let url = "";
@@ -457,14 +598,553 @@
         return;
       }
       lastSentAt = now;
-      const id = crypto.randomUUID();
       draftEl.textContent = "";
       refreshSend();
       setBanner("");
+      const word = callWord(text);
+      if (word) {
+        placeCall(word === "video" ? "video" : "audio");
+        keepKeyboard();
+        return;
+      }
+      const id = crypto.randomUUID();
       showNote({ id, mine: true, kind: "text", text, url: "", remain: VANISH_MS });
       socket.send(JSON.stringify({ type: "text", id, text }));
       keepKeyboard();
     }
+
+    function unlockAudio() {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      if (!audioCtx) audioCtx = new Ctx();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+    }
+
+    function liveLabel() {
+      return callMedia === "video" ? "On a video call" : "On a call";
+    }
+
+    function mediaDenied() {
+      return callMedia === "video"
+        ? "Allow the camera and microphone to video call."
+        : "Allow the microphone to call.";
+    }
+
+    function showCall(mode, label) {
+      const talking = mode !== "incoming";
+      callEl.hidden = false;
+      callEl.classList.toggle("video", callMedia === "video");
+      callLabel.textContent = label;
+      callMute.hidden = !talking;
+      callHide.hidden = !talking || callMedia !== "video";
+      callFlip.hidden = !talking || callMedia !== "video";
+      callAnswer.hidden = mode !== "incoming";
+      callDecline.hidden = mode !== "incoming";
+      callEnd.hidden = !talking;
+    }
+
+    function stopCallLocal() {
+      setCallSession(false);
+      for (const item of callPeers.values()) {
+        try { item.pc.close(); } catch (e) {}
+        if (item.media) item.media.remove();
+      }
+      callPeers.clear();
+      callPending.clear();
+      for (const stream of [localStream, rawStream]) {
+        if (!stream) continue;
+        for (const track of stream.getTracks()) track.stop();
+      }
+      localStream = null;
+      rawStream = null;
+      callId = null;
+      callRole = "";
+      callMedia = "audio";
+      cameraFacing = "user";
+      callStage.replaceChildren();
+      callStage.classList.remove("many");
+      callSelf.srcObject = null;
+      callSelf.hidden = true;
+      callSelf.classList.remove("back", "off");
+      callMute.hidden = true;
+      callMute.textContent = "Mute";
+      callMute.classList.remove("on");
+      callHide.hidden = true;
+      callHide.textContent = "Hide";
+      callHide.classList.remove("on");
+      callFlip.hidden = true;
+      callLabel.textContent = "";
+      callEl.classList.remove("video");
+      callEl.hidden = true;
+    }
+
+    function sendCall(payload) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify(payload));
+    }
+
+    function bagFor(remoteId) {
+      let bag = callPending.get(remoteId);
+      if (!bag) {
+        bag = { descriptions: [], candidates: [] };
+        callPending.set(remoteId, bag);
+      }
+      return bag;
+    }
+
+    function sendVoice(to, description) {
+      sendCall({
+        type: "signal",
+        id: callId,
+        to,
+        description: { type: description.type, sdp: description.sdp },
+      });
+    }
+
+    function speechConstraints() {
+      return {
+        echoCancellation: { ideal: true },
+        echoCancellationType: { ideal: "system" },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+        voiceIsolation: { ideal: true },
+        channelCount: { ideal: 1 },
+      };
+    }
+
+    async function forceEchoControl(stream) {
+      const track = stream && stream.getAudioTracks()[0];
+      if (!track || typeof track.applyConstraints !== "function") return;
+      try {
+        await track.applyConstraints({
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          voiceIsolation: true,
+          channelCount: 1,
+        });
+      } catch (e) {
+        try {
+          await track.applyConstraints({
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          });
+        } catch (err) {}
+      }
+    }
+
+    function nativeCallAudio(active) {
+      const bridge = window.BoxAudio;
+      if (!bridge) return;
+      try {
+        if (!active) bridge.stop();
+        else if (callMedia === "video") bridge.startVideo();
+        else bridge.startVoice();
+      } catch (e) {}
+    }
+
+    function setCallSession(active) {
+      const session = navigator.audioSession;
+      if (session) {
+        try {
+          session.type = active && callMedia !== "video" ? "play-and-record" : "auto";
+        } catch (e) {}
+      }
+      nativeCallAudio(active);
+    }
+
+    async function routePlayback(media) {
+      if (!media || typeof media.setSinkId !== "function" || !navigator.mediaDevices) return;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const outputs = devices.filter((device) => device.kind === "audiooutput");
+        const want = callMedia === "video" ? /speaker|loud/i : /earpiece|receiver|handset/i;
+        const match = outputs.find((device) => want.test(device.label || ""));
+        if (match) await media.setSinkId(match.deviceId);
+      } catch (e) {}
+    }
+
+    function playStream(audio, stream) {
+      audio.srcObject = stream;
+      const played = audio.play();
+      if (played && played.catch) played.catch(() => {});
+      routePlayback(audio);
+    }
+
+    function makePeer(remoteId) {
+      const existing = callPeers.get(remoteId);
+      if (existing) return existing;
+      const pc = new RTCPeerConnection({ iceServers });
+      const media = document.createElement(callMedia === "video" ? "video" : "audio");
+      media.autoplay = true;
+      media.playsInline = true;
+      media.setAttribute("playsinline", "");
+      if (callMedia === "video") {
+        callStage.appendChild(media);
+        callStage.classList.toggle("many", callStage.querySelectorAll("video").length > 1);
+      } else {
+        media.hidden = true;
+        document.body.appendChild(media);
+      }
+      const item = { pc, media };
+      callPeers.set(remoteId, item);
+      if (localStream) {
+        for (const track of localStream.getTracks()) pc.addTrack(track, localStream);
+      }
+      pc.onicecandidate = (event) => {
+        if (!event.candidate || !callId) return;
+        sendCall({ type: "signal", id: callId, to: remoteId, candidate: event.candidate.toJSON() });
+      };
+      pc.ontrack = (event) => {
+        const stream = event.streams[0] || new MediaStream([event.track]);
+        playStream(media, stream);
+        if (callRole === "caller") showCall("live", liveLabel());
+      };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === "failed") setBanner("The call could not connect.");
+      };
+      return item;
+    }
+
+    function showSelf() {
+      if (callMedia !== "video" || !localStream || localStream.getVideoTracks().length === 0) {
+        callSelf.srcObject = null;
+        callSelf.hidden = true;
+        return;
+      }
+      callSelf.srcObject = localStream;
+      callSelf.hidden = false;
+      const track = localStream.getVideoTracks()[0];
+      callSelf.classList.toggle("back", cameraFacing === "environment");
+      callSelf.classList.toggle("off", !track || !track.enabled);
+      const played = callSelf.play();
+      if (played && played.catch) played.catch(() => {});
+    }
+
+    function toggleMute() {
+      const track = localStream && localStream.getAudioTracks()[0];
+      if (!track) return;
+      track.enabled = !track.enabled;
+      const muted = !track.enabled;
+      callMute.textContent = muted ? "Unmute" : "Mute";
+      callMute.classList.toggle("on", muted);
+    }
+
+    function toggleVideo() {
+      const track = localStream && localStream.getVideoTracks()[0];
+      if (!track) return;
+      track.enabled = !track.enabled;
+      const hidden = !track.enabled;
+      callHide.textContent = hidden ? "Show" : "Hide";
+      callHide.classList.toggle("on", hidden);
+      showSelf();
+    }
+
+    function videoSender(pc) {
+      const live = pc.getSenders().find((entry) => entry.track && entry.track.kind === "video");
+      if (live) return live;
+      if (typeof pc.getTransceivers !== "function") return null;
+      const transceiver = pc.getTransceivers().find((entry) => entry.receiver && entry.receiver.track && entry.receiver.track.kind === "video");
+      return transceiver ? transceiver.sender : null;
+    }
+
+    async function useVideoTrack(track) {
+      const existing = localStream.getVideoTracks()[0];
+      if (existing && existing !== track) {
+        localStream.removeTrack(existing);
+        existing.stop();
+      }
+      if (localStream.getVideoTracks().indexOf(track) === -1) localStream.addTrack(track);
+      for (const item of callPeers.values()) {
+        const sender = videoSender(item.pc);
+        if (sender) await sender.replaceTrack(track);
+      }
+    }
+
+    async function openCamera(video) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video });
+      const track = stream.getVideoTracks()[0];
+      if (!track) throw new Error("camera");
+      for (const extra of stream.getTracks()) {
+        if (extra !== track) extra.stop();
+      }
+      return track;
+    }
+
+    async function openOtherCamera(previousId, nextFacing) {
+      let devices = [];
+      try { devices = await navigator.mediaDevices.enumerateDevices(); } catch (e) {}
+      const cameras = devices.filter((device) => device.kind === "videoinput" && device.deviceId && device.deviceId !== previousId);
+      const label = nextFacing === "environment" ? /back|rear|environment/i : /front|user|face/i;
+      const ordered = [];
+      const named = cameras.find((device) => label.test(device.label || ""));
+      if (named) ordered.push(named);
+      for (const camera of cameras) {
+        if (ordered.indexOf(camera) === -1) ordered.push(camera);
+      }
+      const attempts = [];
+      for (const camera of ordered) {
+        attempts.push({ deviceId: { exact: camera.deviceId } });
+        attempts.push({ deviceId: { ideal: camera.deviceId } });
+      }
+      attempts.push({ facingMode: { exact: nextFacing } });
+      attempts.push({ facingMode: { ideal: nextFacing } });
+      attempts.push({ facingMode: nextFacing });
+      for (let round = 0; round < 2; round++) {
+        for (const video of attempts) {
+          let track = null;
+          try {
+            track = await openCamera(video);
+          } catch (e) {
+            if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+            continue;
+          }
+          const got = typeof track.getSettings === "function" ? track.getSettings() : {};
+          const facing = got.facingMode || "";
+          const id = got.deviceId || "";
+          if ((facing && facing === nextFacing) || (id && previousId && id !== previousId)) return track;
+          track.stop();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      return null;
+    }
+
+    async function restoreVideoTrack(deviceId, facing, enabled) {
+      const attempts = [];
+      if (deviceId) attempts.push({ deviceId: { exact: deviceId } });
+      if (facing) attempts.push({ facingMode: facing });
+      attempts.push(true);
+      for (const video of attempts) {
+        try {
+          const track = await openCamera(video);
+          track.enabled = enabled;
+          await useVideoTrack(track);
+          showSelf();
+          return;
+        } catch (e) {}
+      }
+    }
+
+    async function flipCamera() {
+      if (flipping || callMedia !== "video" || !localStream) return;
+      const current = localStream.getVideoTracks()[0];
+      if (!current) return;
+      flipping = true;
+      const settings = typeof current.getSettings === "function" ? current.getSettings() : {};
+      const previousFacing = settings.facingMode || cameraFacing || "user";
+      const previousId = settings.deviceId || "";
+      const nextFacing = previousFacing === "environment" ? "user" : "environment";
+      const wasEnabled = current.enabled;
+      try {
+        if (typeof current.applyConstraints === "function") {
+          try {
+            await current.applyConstraints({ facingMode: nextFacing });
+            const now = current.getSettings ? current.getSettings().facingMode : "";
+            if (now && now !== previousFacing) {
+              cameraFacing = now;
+              setBanner("");
+              showSelf();
+              flipping = false;
+              return;
+            }
+          } catch (e) {}
+        }
+        current.stop();
+        localStream.removeTrack(current);
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const track = await openOtherCamera(previousId, nextFacing);
+        if (!track) throw new Error("camera");
+        track.enabled = wasEnabled;
+        await useVideoTrack(track);
+        const facing = typeof track.getSettings === "function" ? track.getSettings().facingMode : "";
+        cameraFacing = facing === "user" || facing === "environment" ? facing : nextFacing;
+        setBanner("");
+        showSelf();
+      } catch (e) {
+        await restoreVideoTrack(previousId, previousFacing, wasEnabled);
+        setBanner("Couldn't switch the camera.");
+      }
+      flipping = false;
+    }
+
+    async function ensureMic() {
+      if (localStream) return localStream;
+      setCallSession(true);
+      const audio = speechConstraints();
+      const kept = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+      const wantVideo = callMedia === "video";
+      if (wantVideo) {
+        try {
+          cameraFacing = "user";
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio,
+            video: { facingMode: cameraFacing },
+          });
+        } catch (e) {
+          if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+          localStream = await navigator.mediaDevices.getUserMedia({ audio: kept, video: true });
+        }
+        if (localStream.getVideoTracks().length === 0) {
+          for (const track of localStream.getTracks()) track.stop();
+          localStream = null;
+          throw new Error("camera");
+        }
+      } else {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({ audio, video: false });
+        } catch (e) {
+          if (e && (e.name === "NotAllowedError" || e.name === "SecurityError")) throw e;
+          localStream = await navigator.mediaDevices.getUserMedia({ audio: kept, video: false });
+        }
+      }
+      await forceEchoControl(localStream);
+      rawStream = null;
+      for (const track of localStream.getAudioTracks()) track.contentHint = "speech";
+      showSelf();
+      return localStream;
+    }
+
+    async function placeCall(media) {
+      if (callId || phase !== "in" || !socket || socket.readyState !== WebSocket.OPEN) return;
+      callMedia = media === "video" ? "video" : "audio";
+      unlockAudio();
+      showCall("outgoing", callMedia === "video" ? "Calling with video..." : "Calling...");
+      try {
+        await ensureMic();
+      } catch (e) {
+        const message = mediaDenied();
+        stopCallLocal();
+        setBanner(message);
+        return;
+      }
+      callId = crypto.randomUUID();
+      callRole = "caller";
+      sendCall({ type: "call", id: callId, media: callMedia });
+    }
+
+    async function startOffers(payload) {
+      if (!callId || payload.id !== callId || callRole !== "caller" || !localStream) return;
+      const peers = Array.isArray(payload.peers) ? payload.peers : [];
+      if (!peers.length) {
+        stopCallLocal();
+        setBanner("No one else is here.");
+        return;
+      }
+      for (const remoteId of peers) {
+        const item = makePeer(remoteId);
+        const offer = await item.pc.createOffer();
+        await item.pc.setLocalDescription(offer);
+        sendVoice(remoteId, item.pc.localDescription);
+      }
+    }
+
+    function onRing(payload) {
+      if (!payload.id || !payload.from) return;
+      if (callId && callId !== payload.id) return;
+      callId = payload.id;
+      callRole = "receiver";
+      callMedia = payload.media === "video" ? "video" : "audio";
+      bagFor(payload.from);
+      showCall("incoming", callMedia === "video" ? "Incoming video call" : "Incoming call");
+    }
+
+    async function answerCall() {
+      if (callRole !== "receiver" || !callId) return;
+      unlockAudio();
+      try {
+        await ensureMic();
+      } catch (e) {
+        const message = mediaDenied();
+        sendCall({ type: "decline", id: callId });
+        stopCallLocal();
+        setBanner(message);
+        return;
+      }
+      sendCall({ type: "answer", id: callId });
+      showCall("live", liveLabel());
+      for (const remoteId of [...callPending.keys()]) await acceptRemote(remoteId);
+    }
+
+    async function offerToOthers(payload) {
+      if (!callId || payload.id !== callId || !localStream) return;
+      const peers = Array.isArray(payload.peers) ? payload.peers : [];
+      for (const remoteId of peers) {
+        if (callPeers.has(remoteId)) continue;
+        const item = makePeer(remoteId);
+        const offer = await item.pc.createOffer();
+        await item.pc.setLocalDescription(offer);
+        sendVoice(remoteId, item.pc.localDescription);
+      }
+    }
+
+    async function acceptRemote(remoteId) {
+      const bag = bagFor(remoteId);
+      const offer = bag.descriptions.find((item) => item.type === "offer");
+      if (!offer && !callPeers.has(remoteId)) return;
+      const item = makePeer(remoteId);
+      if (offer && !item.pc.currentRemoteDescription) {
+        await item.pc.setRemoteDescription(offer);
+        const answer = await item.pc.createAnswer();
+        await item.pc.setLocalDescription(answer);
+        sendVoice(remoteId, item.pc.localDescription);
+        bag.descriptions = bag.descriptions.filter((item) => item !== offer);
+      }
+      await flushCandidates(item, bag);
+    }
+
+    async function flushCandidates(item, bag) {
+      if (!item.pc.currentRemoteDescription) return;
+      for (const candidate of bag.candidates) {
+        try { await item.pc.addIceCandidate(candidate); } catch (e) {}
+      }
+      bag.candidates = [];
+    }
+
+    async function onSignal(payload) {
+      if (!callId || payload.id !== callId || !payload.from) return;
+      const item = callPeers.get(payload.from);
+      const bag = bagFor(payload.from);
+      if (!item || !item.pc.currentRemoteDescription) {
+        if (payload.description) bag.descriptions.push(payload.description);
+        if (payload.candidate) bag.candidates.push(payload.candidate);
+        if (item && payload.description && payload.description.type === "answer" && !item.pc.currentRemoteDescription) {
+          await item.pc.setRemoteDescription(payload.description);
+          bag.descriptions = bag.descriptions.filter((entry) => entry !== payload.description);
+          await flushCandidates(item, bag);
+          return;
+        }
+        if (localStream) await acceptRemote(payload.from);
+        return;
+      }
+      if (payload.description && payload.description.type === "offer") {
+        await item.pc.setRemoteDescription(payload.description);
+        const answer = await item.pc.createAnswer();
+        await item.pc.setLocalDescription(answer);
+        sendVoice(payload.from, item.pc.localDescription);
+      }
+      if (payload.candidate) {
+        try { await item.pc.addIceCandidate(payload.candidate); } catch (e) {}
+      }
+    }
+
+    function declineCall() {
+      if (callId) sendCall({ type: "decline", id: callId });
+      stopCallLocal();
+    }
+
+    function endCall() {
+      if (callId) sendCall({ type: "hangup", id: callId });
+      stopCallLocal();
+    }
+
+    callMute.addEventListener("click", () => { toggleMute(); });
+    callHide.addEventListener("click", () => { toggleVideo(); });
+    callFlip.addEventListener("click", () => { flipCamera(); });
+    callAnswer.addEventListener("click", () => { answerCall(); });
+    callDecline.addEventListener("click", () => { declineCall(); });
+    callEnd.addEventListener("click", () => { endCall(); });
 
     draftEl.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
@@ -638,6 +1318,10 @@
       hideAddress();
       clearTimeout(missTimer);
       clearTimeout(reconnectTimer);
+      if (callId && socket && socket.readyState === WebSocket.OPEN) {
+        try { socket.send(JSON.stringify({ type: "hangup", id: callId })); } catch (e) {}
+      }
+      stopCallLocal();
       if (socket) {
         const ws = socket;
         socket = null;

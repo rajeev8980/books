@@ -46,6 +46,19 @@ APP_ICONS = {
     "icon-512-maskable.png",
 }
 FRESH = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
+NO_ONE_ELSE = "No one else is here."
+CALL_BUSY = "A call is already on."
+MAX_SDP = 65536
+MAX_CANDIDATE = 4096
+
+
+def call_word(text: str) -> str | None:
+    """Return call or video only when that is the entire message."""
+    word = "".join(ch for ch in text if ch not in "\u200b\u200c\u200d\ufeff")
+    word = " ".join(word.split()).lower()
+    if word in {"call", "video"}:
+        return word
+    return None
 
 
 def prepare_upload_dir(path: Path) -> None:
@@ -95,11 +108,21 @@ class Suggestion:
     mime: str | None
 
 
+@dataclass
+class CallSession:
+    id: str
+    caller: str
+    media: str
+    waiting: set[str]
+    live: set[str]
+
+
 class Room:
     def __init__(self, upload_dir: Path) -> None:
         self.upload_dir = upload_dir
         self.clients: dict[str, WebSocket] = {}
         self.suggestions: dict[str, Suggestion] = {}
+        self.call: CallSession | None = None
         self.lock = asyncio.Lock()
         self.tasks: set[asyncio.Task] = set()
 
@@ -128,7 +151,149 @@ class Room:
         if removed is None:
             return
         log.info("left occupancy %s", occupancy)
+        await self.drop_from_call(client_id)
         await self.broadcast({"type": "presence", "event": "left", "occupancy": occupancy})
+
+    async def send_to(self, client_id: str, payload: dict) -> None:
+        async with self.lock:
+            ws = self.clients.get(client_id)
+        if ws is None:
+            return
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            log.info("closed client %s", client_id)
+            await self.disconnect(client_id)
+
+    async def begin_call(self, caller_id: str, call_id: str, media: str = "audio") -> None:
+        media = "video" if media == "video" else "audio"
+        async with self.lock:
+            if caller_id not in self.clients:
+                return
+            ws = self.clients[caller_id]
+            if self.call is not None:
+                busy = True
+                peers: list[str] = []
+            else:
+                busy = False
+                peers = [cid for cid in self.clients if cid != caller_id]
+                if peers:
+                    self.call = CallSession(
+                        id=call_id,
+                        caller=caller_id,
+                        media=media,
+                        waiting=set(peers),
+                        live=set(),
+                    )
+        if busy:
+            await ws.send_json({"type": "error", "message": CALL_BUSY})
+            return
+        if not peers:
+            await ws.send_json({"type": "error", "message": NO_ONE_ELSE})
+            return
+        await self.send_to(
+            caller_id,
+            {"type": "call-ready", "id": call_id, "peers": peers, "media": media},
+        )
+        for peer in peers:
+            await self.send_to(
+                peer,
+                {"type": "ring", "id": call_id, "from": caller_id, "media": media},
+            )
+
+    async def relay_signal(self, sender_id: str, payload: dict) -> None:
+        call_id = as_uuid(payload.get("id"))
+        target = as_uuid(payload.get("to"))
+        if call_id is None or target is None:
+            return
+        async with self.lock:
+            call = self.call
+            if call is None or call.id != call_id:
+                return
+            members = {call.caller, *call.waiting, *call.live}
+            if sender_id not in members or target not in members or target == sender_id:
+                return
+        message: dict = {"type": "signal", "id": call_id, "from": sender_id}
+        description = payload.get("description")
+        candidate = payload.get("candidate")
+        if isinstance(description, dict):
+            kind = description.get("type")
+            sdp = description.get("sdp")
+            if kind not in ("offer", "answer") or not isinstance(sdp, str) or not sdp or len(sdp) > MAX_SDP:
+                return
+            message["description"] = {"type": kind, "sdp": sdp}
+        elif isinstance(candidate, dict):
+            line = candidate.get("candidate")
+            if not isinstance(line, str) or not line or len(line) > MAX_CANDIDATE:
+                return
+            mid = candidate.get("sdpMid")
+            index = candidate.get("sdpMLineIndex")
+            message["candidate"] = {
+                "candidate": line,
+                "sdpMid": mid if isinstance(mid, str) else None,
+                "sdpMLineIndex": index if isinstance(index, int) else None,
+            }
+        else:
+            return
+        await self.send_to(target, message)
+
+    async def accept_call(self, client_id: str, call_id: str) -> None:
+        async with self.lock:
+            call = self.call
+            if call is None or call.id != call_id or client_id not in call.waiting:
+                return
+            call.waiting.discard(client_id)
+            others = list(call.live)
+            call.live.add(client_id)
+            caller = call.caller
+        await self.send_to(caller, {"type": "answered", "id": call_id, "from": client_id})
+        await self.send_to(client_id, {"type": "mesh", "id": call_id, "peers": others})
+
+    async def decline_call(self, client_id: str, call_id: str) -> None:
+        async with self.lock:
+            call = self.call
+            if call is None or call.id != call_id or client_id not in call.waiting:
+                return
+            call.waiting.discard(client_id)
+            caller = call.caller
+            empty = not call.waiting and not call.live
+        await self.send_to(caller, {"type": "declined", "id": call_id, "from": client_id})
+        if empty:
+            await self.end_call()
+
+    async def hangup(self, client_id: str, call_id: str) -> None:
+        async with self.lock:
+            call = self.call
+            if call is None or call.id != call_id:
+                return
+            involved = client_id == call.caller or client_id in call.waiting or client_id in call.live
+        if involved:
+            await self.end_call()
+
+    async def drop_from_call(self, client_id: str) -> None:
+        async with self.lock:
+            call = self.call
+            if call is None:
+                return
+            if client_id == call.caller:
+                should_end = True
+            else:
+                call.waiting.discard(client_id)
+                call.live.discard(client_id)
+                should_end = not call.waiting and not call.live
+        if should_end:
+            await self.end_call()
+
+    async def end_call(self) -> None:
+        async with self.lock:
+            call = self.call
+            self.call = None
+            if call is None:
+                return
+            targets = [call.caller, *call.waiting, *call.live]
+            call_id = call.id
+        for client_id in targets:
+            await self.send_to(client_id, {"type": "ended", "id": call_id})
 
     async def accept_text(self, sender_id: str, suggestion_id: str, text: str, deadline: float) -> None:
         async with self.lock:
@@ -239,6 +404,7 @@ class Room:
             leftover = list(self.suggestions.values())
             self.suggestions.clear()
             self.clients.clear()
+            self.call = None
         for suggestion in leftover:
             if suggestion.path is not None:
                 try:
@@ -391,7 +557,14 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     except json.JSONDecodeError:
         await websocket.send_json({"type": "error", "message": "That wasn't a suggestion."})
         return
-    if not isinstance(payload, dict) or payload.get("type") != "text":
+    if not isinstance(payload, dict):
+        await websocket.send_json({"type": "error", "message": "That wasn't a suggestion."})
+        return
+    kind = payload.get("type")
+    if kind in {"call", "signal", "answer", "decline", "hangup"}:
+        await handle_call_message(client_id, websocket, kind, payload)
+        return
+    if kind != "text":
         await websocket.send_json({"type": "error", "message": "Drop text, or upload a photo or GIF."})
         return
     text = payload.get("text")
@@ -406,7 +579,29 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     if suggestion_id is None:
         await websocket.send_json({"type": "error", "message": "Suggestion id must be a UUID."})
         return
+    word = call_word(text)
+    if word:
+        await room.begin_call(client_id, suggestion_id, "video" if word == "video" else "audio")
+        return
     await room.accept_text(client_id, suggestion_id, text, deadline)
+
+
+async def handle_call_message(client_id: str, websocket: WebSocket, kind: str, payload: dict) -> None:
+    if kind == "signal":
+        await room.relay_signal(client_id, payload)
+        return
+    call_id = as_uuid(payload.get("id"))
+    if call_id is None:
+        await websocket.send_json({"type": "error", "message": "That call could not start."})
+        return
+    if kind == "call":
+        await room.begin_call(client_id, call_id, "video" if payload.get("media") == "video" else "audio")
+    elif kind == "answer":
+        await room.accept_call(client_id, call_id)
+    elif kind == "decline":
+        await room.decline_call(client_id, call_id)
+    elif kind == "hangup":
+        await room.hangup(client_id, call_id)
 
 
 def main() -> None:
