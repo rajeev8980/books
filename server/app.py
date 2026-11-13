@@ -34,6 +34,7 @@ log = logging.getLogger("box")
 ROOT = Path(__file__).resolve().parent
 DEFAULT_UPLOAD_DIR = ROOT / "data" / "uploads"
 PAGE = ROOT / "static" / "index.html"
+HUG_FILE = ROOT / "static" / "hug.mp4"
 VERSION_FILE = ROOT / "static" / "version.json"
 APK_FILE = ROOT / "static" / "suggestion-box.apk"
 MANIFEST_FILE = ROOT / "static" / "manifest.webmanifest"
@@ -434,6 +435,13 @@ async def index() -> HTMLResponse:
     return HTMLResponse(html, headers=FRESH)
 
 
+@app.get("/hug.mp4")
+async def hug_video():
+    if not HUG_FILE.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(HUG_FILE, media_type="video/mp4", headers={"Cache-Control": "no-store"})
+
+
 @app.get("/manifest.webmanifest")
 async def web_manifest():
     return FileResponse(MANIFEST_FILE, media_type="application/manifest+json", headers=FRESH)
@@ -582,6 +590,9 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     word = call_word(text)
     if word:
         await room.begin_call(client_id, suggestion_id, "video" if word == "video" else "audio")
+        return
+    if text == "HUG+":
+        await room.broadcast({"type": "hug", "id": suggestion_id, "from": client_id}, exclude=client_id)
         return
     await room.accept_text(client_id, suggestion_id, text, deadline)
 

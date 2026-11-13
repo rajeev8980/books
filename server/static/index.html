@@ -49,6 +49,7 @@
         calc(8px + env(safe-area-inset-bottom));
     }
     #notes {
+      position: relative;
       flex: 1;
       min-height: 0;
       overflow-y: auto;
@@ -57,6 +58,22 @@
       gap: 10px;
       padding-top: 8px;
       overscroll-behavior: contain;
+    }
+    #hug {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+    #hug[hidden] { display: none; }
+    #hug video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
     }
     .bubble {
       width: fit-content;
@@ -359,7 +376,11 @@
       <button type="button" data-key="back" aria-label="Delete">⌫</button>
     </div>
   </div>
-  <div id="notes"></div>
+  <div id="notes">
+    <div id="hug" hidden>
+      <video id="hug-video" playsinline></video>
+    </div>
+  </div>
   <p id="banner" hidden></p>
   <div id="call" hidden>
     <div id="call-stage"></div>
@@ -410,6 +431,8 @@
     const VANISH_MS = 3000;
     const MAX_BYTES = 8 * 1024 * 1024;
     const notesEl = document.getElementById("notes");
+    const hugEl = document.getElementById("hug");
+    const hugVideo = document.getElementById("hug-video");
     const statusEl = document.getElementById("status");
     const bannerEl = document.getElementById("banner");
     const retryEl = document.getElementById("retry");
@@ -601,6 +624,8 @@
           offerToOthers(payload);
         } else if (payload.type === "ended") {
           if (callId && payload.id === callId) stopCallLocal();
+        } else if (payload.type === "hug") {
+          playHug();
         } else if (payload.type === "suggestion") {
           if (payload.sender === you || shown.has(payload.id)) return;
           let url = "";
@@ -682,11 +707,49 @@
         keepKeyboard();
         return;
       }
+      if (text === "HUG+") {
+        playHug();
+        socket.send(JSON.stringify({ type: "text", id: crypto.randomUUID(), text }));
+        keepKeyboard();
+        return;
+      }
       const id = crypto.randomUUID();
       showNote({ id, mine: true, kind: "text", text, url: "", remain: VANISH_MS });
       socket.send(JSON.stringify({ type: "text", id, text }));
       keepKeyboard();
     }
+
+    let hugStopping = false;
+
+    function stopHug() {
+      if (hugStopping) return;
+      hugStopping = true;
+      hugEl.hidden = true;
+      hugVideo.pause();
+      hugVideo.removeAttribute("src");
+      hugVideo.load();
+      hugStopping = false;
+    }
+
+    function playHug() {
+      hugEl.hidden = false;
+      hugVideo.muted = false;
+      hugVideo.src = "/hug.mp4";
+      try { hugVideo.currentTime = 0; } catch (e) {}
+      const played = hugVideo.play();
+      if (played && played.catch) {
+        played.catch(() => {
+          hugVideo.muted = true;
+          const retry = hugVideo.play();
+          if (retry && retry.catch) retry.catch(() => stopHug());
+        });
+      }
+    }
+
+    hugVideo.addEventListener("ended", () => stopHug());
+    hugVideo.addEventListener("error", () => {
+      if (!hugEl.hidden) stopHug();
+    });
 
     function unlockAudio() {
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -1527,6 +1590,7 @@
         try { socket.send(JSON.stringify({ type: "hangup", id: callId })); } catch (e) {}
       }
       stopSnap();
+      stopHug();
       stopCallLocal();
       if (socket) {
         const ws = socket;
