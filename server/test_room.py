@@ -440,6 +440,168 @@ async def _drain(socket, timeout: float = 0.2) -> None:
             return
 
 
+def test_call_rings_the_other_person_and_is_not_saved(service: Service) -> None:
+    asyncio.run(_call(service))
+
+
+async def _call(service: Service) -> None:
+    alone = await websockets.connect(service.ws)
+    try:
+        await asyncio.wait_for(alone.recv(), 2)
+        call_id = str(uuid.uuid4())
+        await alone.send(json.dumps({"type": "call", "id": call_id}))
+        refused = json.loads(await asyncio.wait_for(alone.recv(), 2))
+        assert refused == {"type": "error", "message": "No one else is here."}
+        assert call_id not in room.suggestions
+        assert room.call is None
+    finally:
+        await _close(alone)
+
+    caller = await websockets.connect(service.ws)
+    receiver = await websockets.connect(service.ws)
+    extra = await websockets.connect(service.ws)
+    try:
+        caller_welcome = json.loads(await asyncio.wait_for(caller.recv(), 2))
+        receiver_welcome = json.loads(await asyncio.wait_for(receiver.recv(), 2))
+        extra_welcome = json.loads(await asyncio.wait_for(extra.recv(), 2))
+        await _drain(caller)
+        await _drain(receiver)
+        await _drain(extra)
+
+        ordinary = str(uuid.uuid4())
+        await caller.send(json.dumps({"type": "text", "id": ordinary, "text": "call me later"}))
+        kept = await _next_suggestion(receiver)
+        assert kept["text"] == "call me later"
+        assert ordinary in room.suggestions
+
+        call_id = str(uuid.uuid4())
+        await caller.send(json.dumps({"type": "text", "id": call_id, "text": "Call"}))
+        ready = await _next_of(caller, "call-ready")
+        assert ready["id"] == call_id
+        assert set(ready["peers"]) == {receiver_welcome["you"], extra_welcome["you"]}
+        ring = await _next_of(receiver, "ring")
+        assert ring == {"type": "ring", "id": call_id, "from": caller_welcome["you"], "media": "audio"}
+        assert await _next_of(extra, "ring") == ring
+        assert call_id not in room.suggestions
+        assert room.call is not None
+
+        await extra.send(json.dumps({"type": "call", "id": str(uuid.uuid4())}))
+        busy = await _next_of(extra, "error")
+        assert busy["message"] == "A call is already on."
+
+        await caller.send(json.dumps({
+            "type": "signal",
+            "id": call_id,
+            "to": receiver_welcome["you"],
+            "description": {"type": "offer", "sdp": "v=0"},
+        }))
+        heard = await _next_of(receiver, "signal")
+        assert heard["from"] == caller_welcome["you"]
+        assert heard["description"] == {"type": "offer", "sdp": "v=0"}
+        with pytest.raises(asyncio.TimeoutError):
+            await _next_of(extra, "signal", timeout=0.3)
+
+        await receiver.send(json.dumps({"type": "answer", "id": call_id}))
+        answered = await _next_of(caller, "answered")
+        assert answered["from"] == receiver_welcome["you"]
+        mesh = await _next_of(receiver, "mesh")
+        assert mesh["peers"] == []
+
+        await extra.send(json.dumps({"type": "decline", "id": call_id}))
+        declined = await _next_of(caller, "declined")
+        assert declined["from"] == extra_welcome["you"]
+        assert room.call is not None
+
+        await caller.send(json.dumps({"type": "hangup", "id": call_id}))
+        ended = await _next_of(receiver, "ended")
+        assert ended == {"type": "ended", "id": call_id}
+        assert room.call is None
+    finally:
+        await _close(caller, receiver, extra)
+        assert room.call is None
+
+    caller = await websockets.connect(service.ws)
+    receiver = await websockets.connect(service.ws)
+    try:
+        caller_welcome = json.loads(await asyncio.wait_for(caller.recv(), 2))
+        receiver_welcome = json.loads(await asyncio.wait_for(receiver.recv(), 2))
+        await _drain(caller)
+        await _drain(receiver)
+        call_id = str(uuid.uuid4())
+        await caller.send(json.dumps({"type": "call", "id": call_id}))
+        await _next_of(caller, "call-ready")
+        await _next_of(receiver, "ring")
+        await receiver.send(json.dumps({"type": "decline", "id": call_id}))
+        assert await _next_of(caller, "declined") == {
+            "type": "declined",
+            "id": call_id,
+            "from": receiver_welcome["you"],
+        }
+        ended = await _next_of(caller, "ended")
+        assert ended == {"type": "ended", "id": call_id}
+        assert room.call is None
+        assert caller_welcome["type"] == "welcome"
+    finally:
+        await _close(caller, receiver)
+
+    caller = await websockets.connect(service.ws)
+    receiver = await websockets.connect(service.ws)
+    try:
+        caller_welcome = json.loads(await asyncio.wait_for(caller.recv(), 2))
+        receiver_welcome = json.loads(await asyncio.wait_for(receiver.recv(), 2))
+        await _drain(caller)
+        await _drain(receiver)
+        ordinary = str(uuid.uuid4())
+        await caller.send(json.dumps({"type": "text", "id": ordinary, "text": "video later"}))
+        kept = await _next_suggestion(receiver)
+        assert kept["text"] == "video later"
+        call_id = str(uuid.uuid4())
+        await caller.send(json.dumps({"type": "text", "id": call_id, "text": "Video"}))
+        ready = await _next_of(caller, "call-ready")
+        assert ready["media"] == "video"
+        assert set(ready["peers"]) == {receiver_welcome["you"]}
+        ring = await _next_of(receiver, "ring")
+        assert ring == {
+            "type": "ring",
+            "id": call_id,
+            "from": caller_welcome["you"],
+            "media": "video",
+        }
+        assert call_id not in room.suggestions
+        assert room.call is not None and room.call.media == "video"
+        await caller.send(json.dumps({"type": "hangup", "id": call_id}))
+        assert await _next_of(receiver, "ended") == {"type": "ended", "id": call_id}
+        assert room.call is None
+
+        for phrase in ("calling", "video call", "call video", "videos", "please call", "call."):
+            phrase_id = str(uuid.uuid4())
+            await caller.send(json.dumps({"type": "text", "id": phrase_id, "text": phrase}))
+            kept = await _next_suggestion(receiver)
+            assert kept["text"] == phrase
+            assert phrase_id in room.suggestions
+            assert room.call is None
+        spaced = str(uuid.uuid4())
+        await caller.send(json.dumps({"type": "text", "id": spaced, "text": "  VIDEO  "}))
+        ready = await _next_of(caller, "call-ready")
+        assert ready["media"] == "video"
+        assert spaced not in room.suggestions
+        await caller.send(json.dumps({"type": "hangup", "id": spaced}))
+        assert await _next_of(receiver, "ended") == {"type": "ended", "id": spaced}
+    finally:
+        await _close(caller, receiver)
+
+
+async def _next_of(socket, kind: str, timeout: float = 2) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        remaining = max(0.05, deadline - time.monotonic())
+        raw = await asyncio.wait_for(socket.recv(), remaining)
+        payload = json.loads(raw)
+        if payload.get("type") == kind:
+            return payload
+    raise asyncio.TimeoutError
+
+
 async def _close(*sockets) -> None:
     for socket in sockets:
         try:
