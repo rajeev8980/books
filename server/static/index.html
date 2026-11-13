@@ -497,8 +497,16 @@
       return word === "call" || word === "video" ? word : "";
     }
 
-    function isHug(text) {
-      return plainWord(text).toUpperCase() === "HUG+";
+    const clipFiles = {
+      hug: "/hug.mp4",
+      kiss: "/kiss.mp4",
+      bike: "/bike.mp4",
+      eat: "/eat.mp4",
+    };
+    const clipWords = { "HUG+": "hug", "KISS+": "kiss", "BIKE+": "bike", "EAT+": "eat" };
+
+    function clipName(text) {
+      return clipWords[plainWord(text).toUpperCase()] || "";
     }
 
     function refreshSend() {
@@ -631,8 +639,8 @@
           offerToOthers(payload);
         } else if (payload.type === "ended") {
           if (callId && payload.id === callId) stopCallLocal();
-        } else if (payload.type === "hug") {
-          playHug();
+        } else if (payload.type === "clip" || payload.type === "hug") {
+          playClip(payload.name || "hug");
         } else if (payload.type === "suggestion") {
           if (payload.sender === you || shown.has(payload.id)) return;
           let url = "";
@@ -714,9 +722,11 @@
         keepKeyboard();
         return;
       }
-      if (isHug(text)) {
-        playHug();
-        socket.send(JSON.stringify({ type: "text", id: crypto.randomUUID(), text: "HUG+" }));
+      const clip = clipName(text);
+      if (clip) {
+        playClip(clip);
+        const keyword = Object.keys(clipWords).find((word) => clipWords[word] === clip);
+        socket.send(JSON.stringify({ type: "text", id: crypto.randomUUID(), text: keyword }));
         keepKeyboard();
         return;
       }
@@ -749,12 +759,14 @@
       hugVideo.load();
     }
 
-    function playHug() {
+    function playClip(name) {
+      const src = clipFiles[name];
+      if (!src) return;
       const gen = ++hugGen;
       placeHug();
       hugEl.hidden = false;
       hugVideo.muted = true;
-      hugVideo.src = "/hug.mp4";
+      hugVideo.src = src;
       const begin = () => {
         if (gen !== hugGen || hugEl.hidden) return;
         const played = hugVideo.play();

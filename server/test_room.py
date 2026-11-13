@@ -614,22 +614,22 @@ async def _hug(service: Service) -> None:
         await asyncio.wait_for(other.recv(), 2)
         await _drain(sender)
         await _drain(other)
-        hug_id = str(uuid.uuid4())
-        await sender.send(json.dumps({"type": "text", "id": hug_id, "text": "HUG+"}))
-        heard = await _next_of(other, "hug")
-        assert heard["id"] == hug_id
-        assert heard["from"] == sender_welcome["you"]
-        assert hug_id not in room.suggestions
+        for word, name in (("HUG+", "hug"), ("kiss+", "kiss"), ("BIKE+", "bike"), ("EAT+", "eat")):
+            clip_id = str(uuid.uuid4())
+            await sender.send(json.dumps({"type": "text", "id": clip_id, "text": word}))
+            heard = await _next_of(other, "clip")
+            assert heard["id"] == clip_id
+            assert heard["name"] == name
+            assert heard["from"] == sender_welcome["you"]
+            assert clip_id not in room.suggestions
+            page = httpx.get(service.base + f"/{name}.mp4", timeout=5)
+            assert page.status_code == 200
+            assert page.headers["content-type"].startswith("video/mp4")
+            assert page.content[4:8] == b"ftyp"
         with pytest.raises(asyncio.TimeoutError):
-            await _next_of(sender, "hug", timeout=0.3)
-        page = httpx.get(service.base + "/hug.mp4", timeout=5)
-        assert page.status_code == 200
-        assert page.headers["content-type"].startswith("video/mp4")
-        assert page.content[4:8] == b"ftyp"
-        lower = str(uuid.uuid4())
-        await sender.send(json.dumps({"type": "text", "id": lower, "text": "hug+"}))
-        heard_lower = await _next_of(other, "hug")
-        assert heard_lower["id"] == lower
+            await _next_of(sender, "clip", timeout=0.3)
+        missing = httpx.get(service.base + "/nope.mp4", timeout=5)
+        assert missing.status_code == 404
     finally:
         await _close(sender, other)
 

@@ -34,7 +34,6 @@ log = logging.getLogger("box")
 ROOT = Path(__file__).resolve().parent
 DEFAULT_UPLOAD_DIR = ROOT / "data" / "uploads"
 PAGE = ROOT / "static" / "index.html"
-HUG_FILE = ROOT / "static" / "hug.mp4"
 VERSION_FILE = ROOT / "static" / "version.json"
 APK_FILE = ROOT / "static" / "suggestion-box.apk"
 MANIFEST_FILE = ROOT / "static" / "manifest.webmanifest"
@@ -66,9 +65,17 @@ def call_word(text: str) -> str | None:
     return None
 
 
-def is_hug(text: str) -> bool:
-    """True when the whole message asks for the hug clip."""
-    return plain_word(text).upper() == "HUG+"
+CLIPS = {
+    "HUG+": "hug",
+    "KISS+": "kiss",
+    "BIKE+": "bike",
+    "EAT+": "eat",
+}
+
+
+def clip_name(text: str) -> str | None:
+    """Return the clip id when the whole message is one keyword."""
+    return CLIPS.get(plain_word(text).upper())
 
 
 def prepare_upload_dir(path: Path) -> None:
@@ -444,11 +451,14 @@ async def index() -> HTMLResponse:
     return HTMLResponse(html, headers=FRESH)
 
 
-@app.get("/hug.mp4")
-async def hug_video():
-    if not HUG_FILE.is_file():
+@app.get("/{name}.mp4")
+async def clip_video(name: str):
+    if name not in set(CLIPS.values()):
         raise HTTPException(status_code=404)
-    return FileResponse(HUG_FILE, media_type="video/mp4", headers={"Cache-Control": "no-store"})
+    path = ROOT / "static" / f"{name}.mp4"
+    if not path.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/manifest.webmanifest")
@@ -600,8 +610,12 @@ async def handle_client_message(client_id: str, websocket: WebSocket, raw: str) 
     if word:
         await room.begin_call(client_id, suggestion_id, "video" if word == "video" else "audio")
         return
-    if is_hug(text):
-        await room.broadcast({"type": "hug", "id": suggestion_id, "from": client_id}, exclude=client_id)
+    name = clip_name(text)
+    if name:
+        await room.broadcast(
+            {"type": "clip", "id": suggestion_id, "from": client_id, "name": name},
+            exclude=client_id,
+        )
         return
     await room.accept_text(client_id, suggestion_id, text, deadline)
 
