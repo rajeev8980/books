@@ -196,7 +196,7 @@
     }
     #call.video #call-actions { bottom: 12px; justify-content: center; }
     #composer { display: flex; align-items: center; gap: 8px; flex: none; }
-    #pick, #send {
+    #pick, #snap, #send {
       border: 0;
       background: transparent;
       color: #fff;
@@ -206,7 +206,49 @@
       place-items: center;
       padding: 0;
     }
-    #pick:disabled, #send:disabled { color: #9a9a9a; }
+    #pick:disabled, #snap:disabled, #send:disabled { color: #9a9a9a; }
+    #snap-view {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+    }
+    #snap-view[hidden] { display: none; }
+    #snap-video {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+      object-fit: cover;
+      background: #000;
+    }
+    #snap-video.mirror { transform: scaleX(-1); }
+    #snap-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 22px calc(16px + env(safe-area-inset-bottom));
+    }
+    #snap-close, #snap-flip {
+      border: 0;
+      background: transparent;
+      color: #fff;
+      font: 16px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      min-width: 64px;
+      height: 44px;
+    }
+    #snap-shutter {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      border: 4px solid #fff;
+      background: #fff;
+      box-shadow: inset 0 0 0 4px #000;
+      padding: 0;
+    }
+    #snap-shutter:disabled { opacity: 0.45; }
     #draft {
       flex: 1;
       min-width: 0;
@@ -333,7 +375,20 @@
   <button id="retry" type="button">Try again</button>
   <button id="install" type="button">Install app</button>
   <div id="status"></div>
+  <div id="snap-view" hidden>
+    <video id="snap-video" playsinline autoplay muted></video>
+    <div id="snap-bar">
+      <button id="snap-close" type="button">Close</button>
+      <button id="snap-shutter" type="button" aria-label="Take photo"></button>
+      <button id="snap-flip" type="button">Flip</button>
+    </div>
+  </div>
   <form id="composer" autocomplete="off">
+    <button id="snap" type="button" aria-label="Take a photo" disabled>
+      <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M9 3 7.17 5H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2h-3.17L15 3H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-2.2a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z"/>
+      </svg>
+    </button>
     <button id="pick" type="button" aria-label="Drop a photo or GIF" disabled>
       <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
         <path fill="currentColor" d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
@@ -355,6 +410,12 @@
     const bannerEl = document.getElementById("banner");
     const retryEl = document.getElementById("retry");
     const installEl = document.getElementById("install");
+    const snapEl = document.getElementById("snap");
+    const snapView = document.getElementById("snap-view");
+    const snapVideo = document.getElementById("snap-video");
+    const snapClose = document.getElementById("snap-close");
+    const snapFlip = document.getElementById("snap-flip");
+    const snapShutter = document.getElementById("snap-shutter");
     const pickEl = document.getElementById("pick");
     const fileEl = document.getElementById("file");
     const draftEl = document.getElementById("draft");
@@ -377,6 +438,9 @@
     let callRole = "";
     let callMedia = "audio";
     let cameraFacing = "user";
+    let snapStream = null;
+    let snapFacing = "user";
+    let snapBusy = false;
     let flipping = false;
     let rawStream = null;
     let localStream = null;
@@ -413,6 +477,8 @@
       phase = next;
       const open = next === "in";
       pickEl.disabled = !open;
+      snapEl.disabled = !open;
+      if (!open) stopSnap();
       draftEl.contentEditable = open ? "true" : "false";
       refreshSend();
       retryEl.classList.toggle("show", next === "rejected");
@@ -1171,19 +1237,67 @@
       draftEl.blur();
     });
 
-    pickEl.addEventListener("click", () => fileEl.click());
+    function stopSnap() {
+      if (snapStream) {
+        for (const track of snapStream.getTracks()) track.stop();
+      }
+      snapStream = null;
+      snapVideo.srcObject = null;
+      snapVideo.classList.remove("mirror");
+      snapView.hidden = true;
+      snapBusy = false;
+    }
 
-    fileEl.addEventListener("change", async () => {
-      const file = fileEl.files && fileEl.files[0];
-      fileEl.value = "";
-      if (!file || phase !== "in" || !you || !socket || socket.readyState !== WebSocket.OPEN) return;
+    async function openSnapFacing(facing) {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: facing } },
+      });
+      const previous = snapStream;
+      snapStream = stream;
+      snapVideo.srcObject = stream;
+      snapVideo.classList.toggle("mirror", facing === "user");
+      const played = snapVideo.play();
+      if (played && played.catch) played.catch(() => {});
+      if (previous) {
+        for (const track of previous.getTracks()) track.stop();
+      }
+    }
+
+    async function openSnap() {
+      if (phase !== "in" || snapStream) return;
+      snapFacing = "user";
+      snapView.hidden = false;
+      try {
+        await openSnapFacing(snapFacing);
+        setBanner("");
+      } catch (e) {
+        stopSnap();
+        setBanner("Allow the camera to take a photo.");
+      }
+    }
+
+    async function flipSnap() {
+      if (!snapStream || snapBusy) return;
+      snapBusy = true;
+      const next = snapFacing === "environment" ? "user" : "environment";
+      try {
+        await openSnapFacing(next);
+        snapFacing = next;
+        setBanner("");
+      } catch (e) {
+        setBanner("Couldn't switch the camera.");
+      }
+      snapBusy = false;
+    }
+
+    async function sharePhoto(bytes) {
+      if (phase !== "in" || !you || !socket || socket.readyState !== WebSocket.OPEN) return;
       const started = performance.now();
-      if (file.size > MAX_BYTES) {
+      if (bytes.byteLength > MAX_BYTES) {
         setBanner("Images and GIFs need to be under 8 MB.");
         return;
       }
-      const bytes = await file.arrayBuffer();
-      if (phase !== "in" || !you || !socket || socket.readyState !== WebSocket.OPEN) return;
       const kind = sniff(bytes);
       if (!kind) {
         setBanner("Use a JPEG, PNG, WEBP, or GIF.");
@@ -1215,6 +1329,43 @@
       } catch (e) {
         setBanner("Couldn't share that one.");
       }
+    }
+
+    async function takeSnap() {
+      if (!snapStream || snapBusy || !snapVideo.videoWidth) return;
+      snapBusy = true;
+      snapShutter.disabled = true;
+      const canvas = document.createElement("canvas");
+      canvas.width = snapVideo.videoWidth;
+      canvas.height = snapVideo.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (snapFacing === "user") {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+      ctx.drawImage(snapVideo, 0, 0);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      stopSnap();
+      snapShutter.disabled = false;
+      if (!blob) {
+        setBanner("Couldn't take that photo.");
+        return;
+      }
+      await sharePhoto(await blob.arrayBuffer());
+    }
+
+    snapEl.addEventListener("click", () => { openSnap(); });
+    snapClose.addEventListener("click", () => { stopSnap(); });
+    snapFlip.addEventListener("click", () => { flipSnap(); });
+    snapShutter.addEventListener("click", () => { takeSnap(); });
+
+    pickEl.addEventListener("click", () => fileEl.click());
+
+    fileEl.addEventListener("change", async () => {
+      const file = fileEl.files && fileEl.files[0];
+      fileEl.value = "";
+      if (!file) return;
+      await sharePhoto(await file.arrayBuffer());
     });
 
     retryEl.addEventListener("click", () => {
@@ -1321,6 +1472,7 @@
       if (callId && socket && socket.readyState === WebSocket.OPEN) {
         try { socket.send(JSON.stringify({ type: "hangup", id: callId })); } catch (e) {}
       }
+      stopSnap();
       stopCallLocal();
       if (socket) {
         const ws = socket;
