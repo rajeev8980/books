@@ -80,8 +80,12 @@ class MainActivity : ComponentActivity() {
         web = object : WebView(this) {
             override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
                 val connection = super.onCreateInputConnection(outAttrs)
-                outAttrs.inputType = outAttrs.inputType or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                outAttrs.imeOptions = outAttrs.imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI
+                outAttrs.inputType = InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or
+                    InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                outAttrs.imeOptions = outAttrs.imeOptions or
+                    EditorInfo.IME_FLAG_NO_EXTRACT_UI or
+                    EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
                 return connection
             }
 
