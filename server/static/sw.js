@@ -38,6 +38,10 @@ function wipeStored() {
   return caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
 }
 
+self.addEventListener("message", (event) => {
+  if (event.data === "wipe") event.waitUntil(wipeStored());
+});
+
 self.addEventListener("fetch", (event) => {
   event.waitUntil(wipeStored());
   const request = event.request;

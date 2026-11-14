@@ -19,7 +19,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 VANISH_SECONDS = 3.0
 MAX_MEDIA_BYTES = 8 * 1024 * 1024
@@ -458,7 +458,14 @@ async def clip_video(name: str):
     path = ROOT / "static" / f"{name}.mp4"
     if not path.is_file():
         raise HTTPException(status_code=404)
-    return FileResponse(path, media_type="video/mp4", headers={"Cache-Control": "no-store"})
+    return FileResponse(path, media_type="video/mp4", headers=FRESH)
+
+
+@app.post("/forget")
+async def forget_device():
+    headers = dict(FRESH)
+    headers["Clear-Site-Data"] = '"cache", "storage"'
+    return Response(status_code=204, headers=headers)
 
 
 @app.get("/manifest.webmanifest")

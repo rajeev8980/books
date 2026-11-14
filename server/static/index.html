@@ -470,11 +470,45 @@
     function wipeCaches() {
       if (!window.caches || !caches.keys) return;
       caches.keys().then((keys) => keys.forEach((key) => caches.delete(key))).catch(() => {});
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+        try { navigator.serviceWorker.controller.postMessage("wipe"); } catch (e) {}
+      }
+    }
+
+    const heldUrls = new Set();
+
+    function holdUrl(blob) {
+      const url = URL.createObjectURL(blob);
+      heldUrls.add(url);
+      return url;
+    }
+
+    function dropUrl(url) {
+      if (!url) return;
+      URL.revokeObjectURL(url);
+      heldUrls.delete(url);
+    }
+
+    function forgetDevice() {
+      wipeCaches();
+      fetch("/forget", { method: "POST", cache: "no-store", keepalive: true }).catch(() => {});
+      if (window.BoxWipe && window.BoxWipe.now) {
+        try { window.BoxWipe.now(); } catch (e) {}
+      }
+    }
+
+    function blankMedia(node) {
+      if (!node) return;
+      try { if (node.pause) node.pause(); } catch (e) {}
+      try { node.srcObject = null; } catch (e) {}
+      node.removeAttribute("src");
+      try { node.src = ""; } catch (e) {}
+      try { if (node.load) node.load(); } catch (e) {}
     }
     const MAX_BYTES = 8 * 1024 * 1024;
     const notesEl = document.getElementById("notes");
     const hugEl = document.getElementById("hug");
-    const hugVideo = document.getElementById("hug-video");
+    let hugVideo = document.getElementById("hug-video");
     const statusEl = document.getElementById("status");
     const bannerEl = document.getElementById("banner");
     const retryEl = document.getElementById("retry");
@@ -486,7 +520,7 @@
     const snapFlip = document.getElementById("snap-flip");
     const snapShutter = document.getElementById("snap-shutter");
     const snapBar = document.getElementById("snap-bar");
-    const snapStill = document.getElementById("snap-still");
+    let snapStill = document.getElementById("snap-still");
     const snapReview = document.getElementById("snap-review");
     const snapCancel = document.getElementById("snap-cancel");
     const snapSendPhoto = document.getElementById("snap-send");
@@ -620,12 +654,17 @@
       shown.delete(id);
       clearTimeout(item.timer);
       const img = item.el.querySelector("img");
-      if (img) img.removeAttribute("src");
-      if (item.url) URL.revokeObjectURL(item.url);
+      if (img) {
+        blankMedia(img);
+        img.remove();
+      }
+      dropUrl(item.url);
+      item.url = "";
       shred(item.bytes);
       item.bytes = null;
+      item.el.replaceChildren();
       item.el.remove();
-      wipeCaches();
+      forgetDevice();
     }
 
     function sniff(bytes) {
@@ -701,7 +740,8 @@
             const raw = atob(payload.data);
             const bytes = new Uint8Array(raw.length);
             for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-            url = URL.createObjectURL(new Blob([bytes], { type: payload.mime || "application/octet-stream" }));
+            url = holdUrl(new Blob([bytes], { type: payload.mime || "application/octet-stream" }));
+            shred(bytes);
           }
           showNote({
             id: payload.id,
@@ -805,23 +845,43 @@
     }
 
     let hugUrl = "";
+    let releasingHug = false;
+
+    function watchHug(video) {
+      video.addEventListener("ended", () => {
+        if (!hugEl.hidden) stopHug();
+      });
+      video.addEventListener("error", () => {
+        if (releasingHug || hugEl.hidden || !video.getAttribute("src")) return;
+        stopHug();
+      });
+    }
 
     function releaseHug() {
-      hugVideo.pause();
-      hugVideo.removeAttribute("src");
-      hugVideo.load();
-      if (hugUrl) {
-        const url = hugUrl;
-        hugUrl = "";
-        URL.revokeObjectURL(url);
+      if (releasingHug) return;
+      releasingHug = true;
+      const url = hugUrl;
+      hugUrl = "";
+      try {
+        blankMedia(hugVideo);
+        const fresh = document.createElement("video");
+        fresh.id = "hug-video";
+        fresh.setAttribute("playsinline", "");
+        fresh.setAttribute("webkit-playsinline", "");
+        hugVideo.replaceWith(fresh);
+        hugVideo = fresh;
+        watchHug(hugVideo);
+      } finally {
+        releasingHug = false;
       }
+      dropUrl(url);
     }
 
     function stopHug() {
       hugGen += 1;
       hugEl.hidden = true;
       releaseHug();
-      wipeCaches();
+      forgetDevice();
     }
 
     async function playClip(name) {
@@ -835,9 +895,13 @@
       try {
         const response = await fetch(src, { cache: "no-store" });
         if (!response.ok) throw new Error("clip");
-        const blob = await response.blob();
-        if (gen !== hugGen) return;
-        hugUrl = URL.createObjectURL(blob);
+        let blob = await response.blob();
+        if (gen !== hugGen) {
+          blob = null;
+          return;
+        }
+        hugUrl = holdUrl(blob);
+        blob = null;
         hugVideo.src = hugUrl;
       } catch (e) {
         if (gen === hugGen) stopHug();
@@ -865,13 +929,7 @@
       else hugVideo.addEventListener("canplay", begin, { once: true });
     }
 
-    hugVideo.addEventListener("ended", () => {
-      if (!hugEl.hidden) stopHug();
-    });
-    hugVideo.addEventListener("error", () => {
-      if (hugEl.hidden || !hugVideo.getAttribute("src")) return;
-      stopHug();
-    });
+    watchHug(hugVideo);
     window.addEventListener("resize", () => {
       if (!hugEl.hidden) placeHug();
     });
@@ -1442,16 +1500,26 @@
       snapVideo.classList.toggle("mirror", snapFacing !== "environment");
     }
 
+    function renewStill() {
+      const fresh = document.createElement("img");
+      fresh.id = "snap-still";
+      fresh.alt = "Photo to send";
+      fresh.hidden = true;
+      snapStill.replaceWith(fresh);
+      snapStill = fresh;
+    }
+
     function clearSnapShot() {
       if (snapShot) {
-        if (snapShot.url) URL.revokeObjectURL(snapShot.url);
+        dropUrl(snapShot.url);
         shred(snapShot.bytes);
         snapShot.bytes = null;
+        snapShot.url = "";
       }
       snapShot = null;
-      wipeCaches();
-      snapStill.removeAttribute("src");
-      snapStill.hidden = true;
+      blankMedia(snapStill);
+      renewStill();
+      forgetDevice();
       snapVideo.hidden = false;
       snapBar.hidden = false;
       snapReview.hidden = true;
@@ -1587,7 +1655,7 @@
         return;
       }
       const id = crypto.randomUUID();
-      const url = URL.createObjectURL(new Blob([bytes], { type: kind.mime }));
+      const url = holdUrl(new Blob([bytes], { type: kind.mime }));
       const file = new File([bytes], "suggestion." + kind.ext, { type: kind.mime });
       shred(bytes);
       setBanner("");
@@ -1642,7 +1710,7 @@
       }
       const bytes = await blob.arrayBuffer();
       clearSnapShot();
-      snapShot = { url: URL.createObjectURL(blob), bytes };
+      snapShot = { url: holdUrl(blob), bytes };
       snapStill.src = snapShot.url;
       snapStill.hidden = false;
       snapVideo.hidden = true;

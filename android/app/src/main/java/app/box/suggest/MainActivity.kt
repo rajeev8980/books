@@ -153,6 +153,7 @@ class MainActivity : ComponentActivity() {
         }
         callAudio = CallAudio(this)
         web.addJavascriptInterface(callAudio, "BoxAudio")
+        web.addJavascriptInterface(BoxWipe(this, web), "BoxWipe")
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
                 val wantsAudio = request.resources.contains(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
@@ -263,6 +264,21 @@ class MainActivity : ComponentActivity() {
         web.destroy()
         CacheWiper.wipe(this)
         super.onDestroy()
+    }
+}
+
+class BoxWipe(
+    private val activity: MainActivity,
+    private val web: WebView,
+) {
+    @JavascriptInterface
+    fun now() {
+        activity.runOnUiThread {
+            web.clearCache(true)
+            web.clearFormData()
+            web.clearHistory()
+            CookieManager.getInstance().removeAllCookies(null)
+        }
     }
 }
 

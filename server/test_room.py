@@ -160,6 +160,19 @@ def test_camera_keeps_its_side_and_waits_to_send(service: Service) -> None:
     assert "sharePhoto" not in body[taken:wired]
 
 
+def test_forget_clears_the_browser_cache(service: Service) -> None:
+    page = httpx.get(service.base + "/", timeout=2)
+    assert "function forgetDevice" in page.text
+    assert "holdUrl" in page.text
+    assert "localStorage" not in page.text
+    gone = httpx.post(service.base + "/forget", timeout=2)
+    assert gone.status_code == 204
+    cleared = gone.headers["clear-site-data"]
+    assert '"cache"' in cleared
+    assert '"storage"' in cleared
+    assert "no-store" in gone.headers["cache-control"]
+
+
 def test_nothing_stays_on_the_phone(service: Service) -> None:
     page = httpx.get(service.base + "/", timeout=2)
     body = page.text
