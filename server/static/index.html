@@ -235,20 +235,46 @@
       flex-direction: column;
     }
     #snap-view[hidden] { display: none; }
-    #snap-video {
+    #snap-stage {
+      position: relative;
       flex: 1;
-      width: 100%;
       min-height: 0;
-      object-fit: cover;
       background: #000;
     }
+    #snap-video, #snap-still {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+    }
+    #snap-video { object-fit: cover; }
+    #snap-video[hidden], #snap-still[hidden] { display: none; }
+    #snap-still { object-fit: contain; }
     #snap-video.mirror { transform: scaleX(-1); }
-    #snap-bar {
+    #snap-bar, #snap-review {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
       padding: 16px 22px calc(16px + env(safe-area-inset-bottom));
+    }
+    #snap-bar[hidden], #snap-review[hidden] { display: none; }
+    #snap-cancel, #snap-send {
+      min-width: 120px;
+      height: 48px;
+      border-radius: 24px;
+      font: 600 16px/1 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    }
+    #snap-cancel {
+      background: transparent;
+      color: #fff;
+      border: 1px solid #fff;
+    }
+    #snap-send {
+      background: #fff;
+      color: #000;
+      border: 0;
     }
     #snap-close, #snap-flip {
       border: 0;
@@ -398,11 +424,18 @@
   <button id="install" type="button">Install app</button>
   <div id="status"></div>
   <div id="snap-view" hidden>
-    <video id="snap-video" playsinline autoplay muted></video>
+    <div id="snap-stage">
+      <video id="snap-video" playsinline autoplay muted></video>
+      <img id="snap-still" alt="Photo to send" hidden>
+    </div>
     <div id="snap-bar">
       <button id="snap-close" type="button">Close</button>
       <button id="snap-shutter" type="button" aria-label="Take photo"></button>
       <button id="snap-flip" type="button">Flip</button>
+    </div>
+    <div id="snap-review" hidden>
+      <button id="snap-cancel" type="button">Cancel</button>
+      <button id="snap-send" type="button">Send</button>
     </div>
   </div>
   <form id="composer" autocomplete="off">
@@ -442,6 +475,11 @@
     const snapClose = document.getElementById("snap-close");
     const snapFlip = document.getElementById("snap-flip");
     const snapShutter = document.getElementById("snap-shutter");
+    const snapBar = document.getElementById("snap-bar");
+    const snapStill = document.getElementById("snap-still");
+    const snapReview = document.getElementById("snap-review");
+    const snapCancel = document.getElementById("snap-cancel");
+    const snapSendPhoto = document.getElementById("snap-send");
     const pickEl = document.getElementById("pick");
     const fileEl = document.getElementById("file");
     const draftEl = document.getElementById("draft");
@@ -466,6 +504,8 @@
     let cameraFacing = "user";
     let snapStream = null;
     let snapFacing = "user";
+    let snapDeviceId = "";
+    let snapShot = null;
     let snapBusy = false;
     let flipping = false;
     let rawStream = null;
@@ -1358,36 +1398,70 @@
       draftEl.blur();
     });
 
+    function rememberSnap(track, facing) {
+      const settings = track && typeof track.getSettings === "function" ? track.getSettings() : {};
+      const reported = settings.facingMode || facing || snapFacing;
+      snapFacing = reported === "environment" ? "environment" : "user";
+      if (settings.deviceId) snapDeviceId = settings.deviceId;
+      snapVideo.classList.toggle("mirror", snapFacing !== "environment");
+    }
+
+    function clearSnapShot() {
+      if (snapShot && snapShot.url) URL.revokeObjectURL(snapShot.url);
+      snapShot = null;
+      snapStill.removeAttribute("src");
+      snapStill.hidden = true;
+      snapVideo.hidden = false;
+      snapBar.hidden = false;
+      snapReview.hidden = true;
+      snapShutter.disabled = false;
+      snapSendPhoto.disabled = false;
+    }
+
     function stopSnap() {
       if (snapStream) {
         for (const track of snapStream.getTracks()) track.stop();
       }
       snapStream = null;
       snapVideo.srcObject = null;
-      snapVideo.classList.remove("mirror");
+      clearSnapShot();
       snapView.hidden = true;
       snapBusy = false;
     }
 
     async function openSnapFacing(facing) {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { facingMode: { ideal: facing } },
-      });
+      let stream = null;
+      if (snapDeviceId) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: { deviceId: { exact: snapDeviceId } },
+          });
+        } catch (e) {
+          stream = null;
+        }
+      }
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: facing } },
+        });
+      }
       const previous = snapStream;
       snapStream = stream;
       snapVideo.srcObject = stream;
-      snapVideo.classList.toggle("mirror", facing === "user");
+      const track = stream.getVideoTracks()[0];
+      rememberSnap(track, facing);
       const played = snapVideo.play();
       if (played && played.catch) played.catch(() => {});
       if (previous) {
-        for (const track of previous.getTracks()) track.stop();
+        for (const old of previous.getTracks()) old.stop();
       }
     }
 
     async function openSnap() {
       if (phase !== "in" || snapStream) return;
-      snapFacing = "user";
+      clearSnapShot();
       snapView.hidden = false;
       try {
         await openSnapFacing(snapFacing);
@@ -1402,9 +1476,8 @@
       const previous = snapStream;
       const stream = new MediaStream([track]);
       snapStream = stream;
-      snapFacing = facing;
       snapVideo.srcObject = stream;
-      snapVideo.classList.toggle("mirror", facing !== "environment");
+      rememberSnap(track, facing);
       const played = snapVideo.play();
       if (played && played.catch) played.catch(() => {});
       if (previous) {
@@ -1429,8 +1502,7 @@
             await current.applyConstraints({ facingMode: nextFacing });
             const now = current.getSettings ? current.getSettings().facingMode : "";
             if (now && now !== previousFacing) {
-              snapFacing = now;
-              snapVideo.classList.toggle("mirror", now !== "environment");
+              rememberSnap(current, now);
               setBanner("");
               snapBusy = false;
               return;
@@ -1510,19 +1582,35 @@
       }
       ctx.drawImage(snapVideo, 0, 0);
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
-      stopSnap();
-      snapShutter.disabled = false;
       if (!blob) {
+        snapShutter.disabled = false;
+        snapBusy = false;
         setBanner("Couldn't take that photo.");
         return;
       }
-      await sharePhoto(await blob.arrayBuffer());
+      const bytes = await blob.arrayBuffer();
+      clearSnapShot();
+      snapShot = { url: URL.createObjectURL(blob), bytes };
+      snapStill.src = snapShot.url;
+      snapStill.hidden = false;
+      snapVideo.hidden = true;
+      snapBar.hidden = true;
+      snapReview.hidden = false;
+      snapBusy = false;
     }
 
     snapEl.addEventListener("click", () => { openSnap(); });
     snapClose.addEventListener("click", () => { stopSnap(); });
     snapFlip.addEventListener("click", () => { flipSnap(); });
     snapShutter.addEventListener("click", () => { takeSnap(); });
+    snapCancel.addEventListener("click", () => { clearSnapShot(); });
+    snapSendPhoto.addEventListener("click", async () => {
+      if (!snapShot) return;
+      const bytes = snapShot.bytes;
+      snapSendPhoto.disabled = true;
+      await sharePhoto(bytes);
+      stopSnap();
+    });
 
     pickEl.addEventListener("click", () => fileEl.click());
 

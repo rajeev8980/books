@@ -139,6 +139,27 @@ def test_phone_can_fetch_a_newer_package(service: Service) -> None:
     assert "no-store" in package.headers["cache-control"]
 
 
+def test_camera_keeps_its_side_and_waits_to_send(service: Service) -> None:
+    page = httpx.get(service.base + "/", timeout=2)
+    assert page.status_code == 200
+    body = page.text
+    assert 'id="pick"' in body
+    assert 'id="snap"' in body
+    assert 'id="snap-send"' in body
+    assert ">Send<" in body
+    assert 'id="snap-cancel"' in body
+    assert ">Cancel<" in body
+    assert 'spellcheck="false"' in body
+    assert "KISS+" in body and "BIKE+" in body and "EAT+" in body and "HUG+" in body
+    opened = body.index("async function openSnap()")
+    attached = body.index("function attachSnap")
+    assert 'snapFacing = "user"' not in body[opened:attached]
+    assert "snapDeviceId" in body
+    taken = body.index("async function takeSnap()")
+    wired = body.index('snapEl.addEventListener("click"')
+    assert "sharePhoto" not in body[taken:wired]
+
+
 def test_page_is_fresh_html(service: Service) -> None:
     response = httpx.get(service.base + "/", timeout=2)
     assert response.status_code == 200
