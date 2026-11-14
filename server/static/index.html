@@ -461,6 +461,16 @@
   </form>
   <script>
     const VANISH_MS = 3000;
+
+    function shred(bytes) {
+      if (!bytes) return;
+      try { new Uint8Array(bytes).fill(0); } catch (e) {}
+    }
+
+    function wipeCaches() {
+      if (!window.caches || !caches.keys) return;
+      caches.keys().then((keys) => keys.forEach((key) => caches.delete(key))).catch(() => {});
+    }
     const MAX_BYTES = 8 * 1024 * 1024;
     const notesEl = document.getElementById("notes");
     const hugEl = document.getElementById("hug");
@@ -600,7 +610,7 @@
       }
       notesEl.appendChild(el);
       const timer = setTimeout(() => removeNote(item.id), item.remain);
-      shown.set(item.id, { el, url: item.url || "", timer });
+      shown.set(item.id, { el, url: item.url || "", timer, bytes: item.bytes || null });
       notesEl.scrollTop = notesEl.scrollHeight;
     }
 
@@ -612,7 +622,10 @@
       const img = item.el.querySelector("img");
       if (img) img.removeAttribute("src");
       if (item.url) URL.revokeObjectURL(item.url);
+      shred(item.bytes);
+      item.bytes = null;
       item.el.remove();
+      wipeCaches();
     }
 
     function sniff(bytes) {
@@ -791,22 +804,45 @@
       hugEl.style.height = Math.round(height) + "px";
     }
 
-    function stopHug() {
-      hugGen += 1;
-      hugEl.hidden = true;
+    let hugUrl = "";
+
+    function releaseHug() {
       hugVideo.pause();
       hugVideo.removeAttribute("src");
       hugVideo.load();
+      if (hugUrl) {
+        const url = hugUrl;
+        hugUrl = "";
+        URL.revokeObjectURL(url);
+      }
     }
 
-    function playClip(name) {
+    function stopHug() {
+      hugGen += 1;
+      hugEl.hidden = true;
+      releaseHug();
+      wipeCaches();
+    }
+
+    async function playClip(name) {
       const src = clipFiles[name];
       if (!src) return;
       const gen = ++hugGen;
+      releaseHug();
       placeHug();
       hugEl.hidden = false;
       hugVideo.muted = true;
-      hugVideo.src = src;
+      try {
+        const response = await fetch(src, { cache: "no-store" });
+        if (!response.ok) throw new Error("clip");
+        const blob = await response.blob();
+        if (gen !== hugGen) return;
+        hugUrl = URL.createObjectURL(blob);
+        hugVideo.src = hugUrl;
+      } catch (e) {
+        if (gen === hugGen) stopHug();
+        return;
+      }
       const begin = () => {
         if (gen !== hugGen || hugEl.hidden) return;
         const played = hugVideo.play();
@@ -1407,8 +1443,13 @@
     }
 
     function clearSnapShot() {
-      if (snapShot && snapShot.url) URL.revokeObjectURL(snapShot.url);
+      if (snapShot) {
+        if (snapShot.url) URL.revokeObjectURL(snapShot.url);
+        shred(snapShot.bytes);
+        snapShot.bytes = null;
+      }
       snapShot = null;
+      wipeCaches();
       snapStill.removeAttribute("src");
       snapStill.hidden = true;
       snapVideo.hidden = false;
@@ -1529,25 +1570,32 @@
     }
 
     async function sharePhoto(bytes) {
-      if (phase !== "in" || !you || !socket || socket.readyState !== WebSocket.OPEN) return;
+      if (phase !== "in" || !you || !socket || socket.readyState !== WebSocket.OPEN) {
+        shred(bytes);
+        return;
+      }
       const started = performance.now();
       if (bytes.byteLength > MAX_BYTES) {
+        shred(bytes);
         setBanner("Images and GIFs need to be under 8 MB.");
         return;
       }
       const kind = sniff(bytes);
       if (!kind) {
+        shred(bytes);
         setBanner("Use a JPEG, PNG, WEBP, or GIF.");
         return;
       }
       const id = crypto.randomUUID();
       const url = URL.createObjectURL(new Blob([bytes], { type: kind.mime }));
+      const file = new File([bytes], "suggestion." + kind.ext, { type: kind.mime });
+      shred(bytes);
       setBanner("");
       const remain = Math.max(0, VANISH_MS - (performance.now() - started));
       showNote({ id, mine: true, kind: kind.kind, text: "", url, remain });
       const body = new FormData();
       body.append("id", id);
-      body.append("file", new File([bytes], "suggestion." + kind.ext, { type: kind.mime }));
+      body.append("file", file);
       try {
         const response = await fetch("/media", {
           method: "POST",
@@ -1582,6 +1630,10 @@
       }
       ctx.drawImage(snapVideo, 0, 0);
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.92));
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.width = 0;
+      canvas.height = 0;
       if (!blob) {
         snapShutter.disabled = false;
         snapBusy = false;
@@ -1607,6 +1659,7 @@
     snapSendPhoto.addEventListener("click", async () => {
       if (!snapShot) return;
       const bytes = snapShot.bytes;
+      snapShot.bytes = null;
       snapSendPhoto.disabled = true;
       await sharePhoto(bytes);
       stopSnap();
@@ -1623,12 +1676,9 @@
 
     retryEl.addEventListener("click", () => {
       rejected = false;
+      for (const id of Array.from(shown.keys())) removeNote(id);
       notesEl.replaceChildren();
-      for (const item of shown.values()) {
-        clearTimeout(item.timer);
-        if (item.url) URL.revokeObjectURL(item.url);
-      }
-      shown.clear();
+      wipeCaches();
       setPhase("connecting");
       statusEl.textContent = "";
       setBanner("");
@@ -1736,12 +1786,9 @@
       }
       you = null;
       rejected = false;
+      for (const id of Array.from(shown.keys())) removeNote(id);
       notesEl.replaceChildren();
-      for (const item of shown.values()) {
-        clearTimeout(item.timer);
-        if (item.url) URL.revokeObjectURL(item.url);
-      }
-      shown.clear();
+      wipeCaches();
       setPhase("connecting");
       statusEl.textContent = "";
       setBanner("");

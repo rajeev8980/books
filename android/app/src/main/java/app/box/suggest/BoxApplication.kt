@@ -31,6 +31,7 @@ private fun buildImageLoader(application: Application): ImageLoader {
         }
         .diskCache(null)
         .diskCachePolicy(CachePolicy.DISABLED)
+        .memoryCachePolicy(CachePolicy.DISABLED)
         .networkCachePolicy(CachePolicy.DISABLED)
         .build()
 }

@@ -138,6 +138,7 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
     fun leave() {
         userLeft = true
         reads = 0
+        _state.value.notes.forEach { it.bytes?.fill(0) }
         session.disconnect()
         selfId = null
         _state.update {
@@ -212,8 +213,9 @@ class BoxViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun clearNote(id: String) {
-        if (_state.value.notes.none { it.id == id }) return
-        _state.update { it.copy(notes = it.notes.filter { note -> note.id != id }) }
+        val note = _state.value.notes.find { it.id == id } ?: return
+        note.bytes?.fill(0)
+        _state.update { it.copy(notes = it.notes.filter { item -> item.id != id }) }
         forget(id)
     }
 

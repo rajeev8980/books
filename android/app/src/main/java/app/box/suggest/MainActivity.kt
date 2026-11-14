@@ -115,14 +115,17 @@ class MainActivity : ComponentActivity() {
             domStorageEnabled = false
             databaseEnabled = false
             cacheMode = WebSettings.LOAD_NO_CACHE
-            allowFileAccess = true
+            allowFileAccess = false
             allowContentAccess = true
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             mediaPlaybackRequiresUserGesture = false
         }
+        web.setDownloadListener { _, _, _, _, _ -> }
         web.clearCache(true)
         web.clearFormData()
         web.clearHistory()
+        CookieManager.getInstance().removeAllCookies(null)
+        CacheWiper.wipe(this)
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val host = request.url?.host ?: return true
@@ -208,6 +211,14 @@ class MainActivity : ComponentActivity() {
         AppUpdate.onResume(this)
     }
 
+    override fun onPause() {
+        web.clearCache(true)
+        web.clearFormData()
+        web.clearHistory()
+        CookieManager.getInstance().removeAllCookies(null)
+        super.onPause()
+    }
+
     private fun loadBox() {
         pageReady = false
         web.loadUrl(BuildConfig.SERVER_URL)
@@ -247,8 +258,10 @@ class MainActivity : ComponentActivity() {
         pendingCapture?.deny()
         pendingCapture = null
         web.stopLoading()
+        web.clearCache(true)
         web.loadUrl("about:blank")
         web.destroy()
+        CacheWiper.wipe(this)
         super.onDestroy()
     }
 }

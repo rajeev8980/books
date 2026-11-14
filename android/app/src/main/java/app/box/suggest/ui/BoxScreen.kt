@@ -206,7 +206,7 @@ private fun NoteBubble(
                             .data(suggestion.bytes)
                             .memoryCacheKey(suggestion.id)
                             .diskCachePolicy(CachePolicy.DISABLED)
-                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .memoryCachePolicy(CachePolicy.DISABLED)
                             .build(),
                         imageLoader = imageLoader,
                         contentDescription = description,

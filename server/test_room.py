@@ -160,6 +160,22 @@ def test_camera_keeps_its_side_and_waits_to_send(service: Service) -> None:
     assert "sharePhoto" not in body[taken:wired]
 
 
+def test_nothing_stays_on_the_phone(service: Service) -> None:
+    page = httpx.get(service.base + "/", timeout=2)
+    body = page.text
+    assert "function shred" in body
+    assert "function wipeCaches" in body
+    assert 'cache: "no-store"' in body
+    assert "revokeObjectURL" in body
+    assert "localStorage" not in body
+    assert "indexedDB" not in body
+    assert "sessionStorage" not in body
+    worker = httpx.get(service.base + "/sw.js", timeout=2)
+    assert "caches.delete" in worker.text
+    assert "caches.put" not in worker.text
+    assert "caches.add" not in worker.text
+
+
 def test_page_is_fresh_html(service: Service) -> None:
     response = httpx.get(service.base + "/", timeout=2)
     assert response.status_code == 200

@@ -34,7 +34,12 @@ async function boxDocument(request) {
   return last || fetch(request, { cache: "no-store" });
 }
 
+function wipeStored() {
+  return caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))));
+}
+
 self.addEventListener("fetch", (event) => {
+  event.waitUntil(wipeStored());
   const request = event.request;
   if (request.method !== "GET") return;
   const url = new URL(request.url);
