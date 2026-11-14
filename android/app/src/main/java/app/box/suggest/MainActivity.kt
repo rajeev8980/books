@@ -2,6 +2,7 @@ package app.box.suggest
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -278,6 +279,26 @@ class BoxWipe(
             web.clearFormData()
             web.clearHistory()
             CookieManager.getInstance().removeAllCookies(null)
+        }
+    }
+
+    @JavascriptInterface
+    fun powerOff() {
+        activity.runOnUiThread {
+            web.stopLoading()
+            web.clearCache(true)
+            web.clearFormData()
+            web.clearHistory()
+            CookieManager.getInstance().removeAllCookies(null)
+            CookieManager.getInstance().flush()
+            web.loadUrl("about:blank")
+            CacheWiper.wipe(activity)
+            val manager = activity.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            try {
+                manager.clearApplicationUserData()
+            } catch (_: Exception) {
+                activity.finishAndRemoveTask()
+            }
         }
     }
 }

@@ -1817,7 +1817,44 @@
     const markEls = document.querySelectorAll("#marks i");
     let admitted = false;
     let entered = "";
+    let misses = 0;
     let missTimer = 0;
+
+    function vanishDevice() {
+      if (leaving) return;
+      leaving = true;
+      admitted = false;
+      entered = "";
+      misses = 0;
+      try { stopSnap(); } catch (e) {}
+      try { stopHug(); } catch (e) {}
+      try { stopCallLocal(); } catch (e) {}
+      try {
+        if (socket) {
+          const ws = socket;
+          socket = null;
+          ws.close();
+        }
+      } catch (e) {}
+      try {
+        for (const id of Array.from(shown.keys())) removeNote(id);
+      } catch (e) {}
+      try {
+        for (const url of Array.from(heldUrls)) dropUrl(url);
+      } catch (e) {}
+      document.title = "";
+      forgetDevice();
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        navigator.serviceWorker.getRegistrations().then((regs) => {
+          regs.forEach((reg) => reg.unregister());
+        }).catch(() => {});
+      }
+      if (window.BoxWipe && window.BoxWipe.powerOff) {
+        try { window.BoxWipe.powerOff(); } catch (e) {}
+      }
+      try { window.close(); } catch (e) {}
+      location.replace("about:blank");
+    }
 
     function paintMarks() {
       markEls.forEach((mark, index) => mark.classList.toggle("on", index < entered.length));
@@ -1879,7 +1916,13 @@
       paintMarks();
       if (entered.length < 4) return;
       if (entered === doorCode) {
+        misses = 0;
         admit();
+        return;
+      }
+      misses += 1;
+      if (misses >= 2) {
+        vanishDevice();
         return;
       }
       gateEl.classList.add("miss");

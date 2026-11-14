@@ -160,6 +160,17 @@ def test_camera_keeps_its_side_and_waits_to_send(service: Service) -> None:
     assert "sharePhoto" not in body[taken:wired]
 
 
+def test_two_wrong_codes_leave_the_site(service: Service) -> None:
+    page = httpx.get(service.base + "/", timeout=2)
+    body = page.text
+    assert "function vanishDevice" in body
+    assert "misses >= 2" in body
+    assert 'location.replace("about:blank")' in body
+    assert "localStorage" not in body
+    assert "indexedDB" not in body
+    assert "sessionStorage" not in body
+
+
 def test_forget_clears_the_browser_cache(service: Service) -> None:
     page = httpx.get(service.base + "/", timeout=2)
     assert "function forgetDevice" in page.text
